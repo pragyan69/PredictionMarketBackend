@@ -1,7 +1,8 @@
 import { createApp } from './app';
 import { env } from './config/env';
 import { clickhouse } from './config/clickhouse';
-
+import dns from "dns";
+dns.setDefaultResultOrder("ipv4first");
 async function bootstrap() {
   try {
     await clickhouse.connect();
