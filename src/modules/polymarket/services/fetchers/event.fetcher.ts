@@ -5,14 +5,32 @@ import { GammaEvent } from '../../types/gamma.types';
 
 export class EventFetcher {
   /**
-   * Fetch all events from Gamma API
+   * Fetch all events from Gamma API with pagination
+   * @param activeOnly - If true, only fetch active events that are not closed
    * Returns events with their associated markets
    */
-  async fetchAllEvents(): Promise<GammaEvent[]> {
-    console.log('📥 Fetching all events from Gamma API...');
+  async fetchAllEvents(activeOnly: boolean = false): Promise<GammaEvent[]> {
+    console.log(`📥 Fetching all events from Gamma API (activeOnly=${activeOnly})...`);
+    console.log(`   🔗 URL: ${gammaClient.baseUrl}/events`);
 
     try {
-      const events = await gammaClient.getEvents();
+      const events = await gammaClient.getAllEvents(activeOnly);
+
+      // Debug: Verify actual data
+      console.log(`   📊 DEBUG: Raw response type: ${typeof events}`);
+      console.log(`   📊 DEBUG: Is array: ${Array.isArray(events)}`);
+      console.log(`   📊 DEBUG: Length: ${events?.length ?? 'undefined'}`);
+
+      if (events && events.length > 0) {
+        console.log(`   📊 DEBUG: First event sample:`, JSON.stringify(events[0], null, 2).substring(0, 500));
+        // Count active vs closed
+        const activeCount = events.filter(e => e.active === true && e.closed !== true).length;
+        const closedCount = events.filter(e => e.closed === true).length;
+        console.log(`   📊 DEBUG: Active events: ${activeCount}, Closed events: ${closedCount}`);
+      } else {
+        console.log(`   ⚠️ DEBUG: No events returned or empty array`);
+      }
+
       console.log(`✅ Fetched ${events.length} events`);
       return events;
     } catch (error) {

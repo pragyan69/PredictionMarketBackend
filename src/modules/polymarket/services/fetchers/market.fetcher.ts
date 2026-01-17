@@ -8,12 +8,30 @@ import { MarketActivityData } from '../../types/aggregation.types';
 export class MarketFetcher {
   /**
    * Fetch all markets from Gamma API using pagination
+   * @param activeOnly - If true, only fetch active markets that are not closed
    */
-  async fetchAllMarkets(): Promise<GammaMarket[]> {
-    console.log('📥 Fetching all markets from Gamma API...');
+  async fetchAllMarkets(activeOnly: boolean = false): Promise<GammaMarket[]> {
+    console.log(`📥 Fetching all markets from Gamma API (activeOnly=${activeOnly})...`);
+    console.log(`   🔗 URL: ${gammaClient.baseUrl}/markets`);
 
     try {
-      const markets = await gammaClient.getAllMarkets();
+      const markets = await gammaClient.getAllMarkets(activeOnly);
+
+      // Debug: Verify actual data
+      console.log(`   📊 DEBUG: Raw response type: ${typeof markets}`);
+      console.log(`   📊 DEBUG: Is array: ${Array.isArray(markets)}`);
+      console.log(`   📊 DEBUG: Length: ${markets?.length ?? 'undefined'}`);
+
+      if (markets && markets.length > 0) {
+        console.log(`   📊 DEBUG: First market sample:`, JSON.stringify(markets[0], null, 2).substring(0, 500));
+        // Count active vs closed
+        const activeCount = markets.filter(m => m.active === true && m.closed !== true).length;
+        const closedCount = markets.filter(m => m.closed === true).length;
+        console.log(`   📊 DEBUG: Active markets: ${activeCount}, Closed markets: ${closedCount}`);
+      } else {
+        console.log(`   ⚠️ DEBUG: No markets returned or empty array`);
+      }
+
       console.log(`✅ Fetched ${markets.length} markets`);
       return markets;
     } catch (error) {

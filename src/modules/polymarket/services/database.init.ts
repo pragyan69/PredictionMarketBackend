@@ -86,6 +86,27 @@ const SCHEMA_STATEMENTS = [
   ) ENGINE = ReplacingMergeTree(fetched_at)
   ORDER BY (user_address, market_id, asset_id)`,
 
+  // Trades table - stores all trade transactions
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.polymarket_trades (
+    id String,
+    market_id String,
+    condition_id String,
+    asset String,
+    user_address String,
+    side String,
+    price Float64,
+    size Float64,
+    timestamp DateTime64(3),
+    transaction_hash String,
+    outcome String,
+    outcome_index UInt32,
+    title String,
+    slug String,
+    event_slug String,
+    fetched_at DateTime64(3) DEFAULT now64(3)
+  ) ENGINE = ReplacingMergeTree(fetched_at)
+  ORDER BY (condition_id, timestamp, transaction_hash)`,
+
   // Pipeline runs table
   `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.polymarket_pipeline_runs (
     id String,
@@ -94,6 +115,7 @@ const SCHEMA_STATEMENTS = [
     completed_at Nullable(DateTime64(3)),
     events_fetched UInt32 DEFAULT 0,
     markets_fetched UInt32 DEFAULT 0,
+    trades_fetched UInt32 DEFAULT 0,
     traders_fetched UInt32 DEFAULT 0,
     positions_fetched UInt32 DEFAULT 0,
     error_message String DEFAULT ''

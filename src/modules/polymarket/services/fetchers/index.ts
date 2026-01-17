@@ -5,3 +5,4 @@ export { marketFetcher, MarketFetcher } from './market.fetcher';
 export { priceFetcher, PriceFetcher } from './price.fetcher';
 export { orderbookFetcher, OrderbookFetcher } from './orderbook.fetcher';
 export { traderFetcher, TraderFetcher } from './trader.fetcher';
+export { tradesFetcher, TradesFetcher, EnrichedTrade } from './trades.fetcher';

@@ -32,9 +32,15 @@ export class CLOBAPIClient {
 
     this.client.interceptors.response.use(
       (res) => {
+        const dataInfo = Array.isArray(res.data)
+          ? `Array[${res.data.length}]${res.data.length > 0 ? ` first: ${JSON.stringify(res.data[0]).substring(0, 200)}...` : ''}`
+          : typeof res.data === 'object'
+          ? `Object keys: ${Object.keys(res.data || {}).join(', ')}`
+          : typeof res.data;
         console.log("✅ CLOB RESPONSE", {
           status: res.status,
           url: `${res.config.baseURL}${res.config.url}`,
+          dataType: dataInfo,
         });
         return res;
       },

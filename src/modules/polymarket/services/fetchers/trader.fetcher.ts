@@ -14,6 +14,7 @@ export class TraderFetcher {
    */
   async fetchLeaderboard(limit: number = 0): Promise<LeaderboardEntry[]> {
     console.log(`📥 Fetching leaderboard${limit > 0 ? ` (top ${limit})` : ' (all)'}...`);
+    console.log(`   🔗 URL: ${dataClient.baseUrl}/v1/leaderboard`);
 
     const traders: LeaderboardEntry[] = [];
     let offset = 0;
@@ -21,7 +22,20 @@ export class TraderFetcher {
     try {
       if (limit > 0) {
         // Fetch only up to the specified limit
+        console.log(`   📊 DEBUG: Requesting limit=${limit}, offset=0`);
         const response = await dataClient.getLeaderboard({ limit, offset: 0 });
+
+        // Debug: Verify actual data
+        console.log(`   📊 DEBUG: Raw response type: ${typeof response}`);
+        console.log(`   📊 DEBUG: Is array: ${Array.isArray(response)}`);
+        console.log(`   📊 DEBUG: Length: ${response?.length ?? 'undefined'}`);
+
+        if (response && Array.isArray(response) && response.length > 0) {
+          console.log(`   📊 DEBUG: First trader sample:`, JSON.stringify(response[0], null, 2).substring(0, 500));
+        } else {
+          console.log(`   ⚠️ DEBUG: No traders returned or empty array`);
+        }
+
         const entries = this.normalizeLeaderboardResponse(response);
         traders.push(...entries);
       } else {

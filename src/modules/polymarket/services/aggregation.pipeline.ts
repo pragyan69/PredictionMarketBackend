@@ -8,14 +8,8 @@ import {
   PipelineStatus,
   PipelinePhase,
   PipelineProgress,
-  EnrichedEvent,
-  EnrichedMarket,
-  EnrichedTrader,
-  EnrichedPosition,
   OrderbookSummary,
-  MarketActivityData,
   LeaderboardEntry,
-  PositionEntry,
 } from '../types/aggregation.types';
 
 import {
@@ -24,20 +18,21 @@ import {
   priceFetcher,
   orderbookFetcher,
   traderFetcher,
+  tradesFetcher,
+  EnrichedTrade,
 } from './fetchers';
 
 import {
   eventTransformer,
   marketTransformer,
   traderTransformer,
-  positionTransformer,
 } from './transformers';
 
 const DEFAULT_CONFIG: PipelineConfig = {
-  topTradersLimit: 0, // 0 = fetch all
+  topTradersLimit: 100, // Limit traders to avoid too many position fetches
   enableOrderbookFetch: true,
-  enableMarketActivity: true,
-  enableTraderPositions: true,
+  enableMarketActivity: false, // Disable since we're fetching trades directly
+  enableTraderPositions: false, // Disable for faster execution
 };
 
 export class AggregationPipeline {
@@ -47,17 +42,11 @@ export class AggregationPipeline {
   // Raw data
   private events: GammaEvent[] = [];
   private markets: GammaMarket[] = [];
+  private activeMarkets: GammaMarket[] = [];
   private priceMap: Map<string, number> = new Map();
   private orderbookMap: Map<string, OrderbookSummary> = new Map();
-  private activityMap: Map<string, MarketActivityData> = new Map();
+  private tradesMap: Map<string, EnrichedTrade[]> = new Map();
   private traders: LeaderboardEntry[] = [];
-  private positionsMap: Map<string, PositionEntry[]> = new Map();
-
-  // Transformed data
-  private enrichedEvents: EnrichedEvent[] = [];
-  private enrichedMarkets: EnrichedMarket[] = [];
-  private enrichedTraders: EnrichedTrader[] = [];
-  private enrichedPositions: EnrichedPosition[] = [];
 
   constructor() {
     this.config = { ...DEFAULT_CONFIG };
@@ -80,13 +69,16 @@ export class AggregationPipeline {
     return {
       eventsFetched: 0,
       marketsFetched: 0,
+      activeMarkets: 0,
       pricesFetched: 0,
       orderbooksFetched: 0,
       marketActivityFetched: 0,
+      tradesFetched: 0,
       tradersFetched: 0,
       positionsFetched: 0,
       eventsStored: 0,
       marketsStored: 0,
+      tradesStored: 0,
       tradersStored: 0,
       positionsStored: 0,
     };
@@ -110,7 +102,7 @@ export class AggregationPipeline {
 
     console.log(`🚀 Starting Aggregation Pipeline (runId: ${this.status.runId})`);
     console.log('📋 Config:', this.config);
-    console.log('📋 Mode: INCREMENTAL STORAGE (data saved after each phase)');
+    console.log('📋 Mode: ACTIVE MARKETS + TRADES (incremental storage)');
 
     // Record pipeline run start
     await this.recordPipelineStart();
@@ -141,21 +133,17 @@ export class AggregationPipeline {
   private reset(): void {
     this.events = [];
     this.markets = [];
+    this.activeMarkets = [];
     this.priceMap = new Map();
     this.orderbookMap = new Map();
-    this.activityMap = new Map();
+    this.tradesMap = new Map();
     this.traders = [];
-    this.positionsMap = new Map();
-    this.enrichedEvents = [];
-    this.enrichedMarkets = [];
-    this.enrichedTraders = [];
-    this.enrichedPositions = [];
     this.status.progress = this.createEmptyProgress();
   }
 
   /**
-   * Main pipeline execution with INCREMENTAL STORAGE
-   * Data is saved to database after each relevant phase
+   * Main pipeline execution
+   * Focus: Active markets + Trades
    */
   private async runPipeline(): Promise<void> {
     try {
@@ -167,49 +155,42 @@ export class AggregationPipeline {
       // Phase 1: Fetch events
       await this.fetchEvents();
 
-      // Phase 2: Fetch markets
-      await this.fetchMarkets();
-      // 💾 INCREMENTAL: Store basic markets immediately
-      await this.storeMarketsIncremental('basic');
+      // Phase 2: Fetch markets and filter to active only
+      await this.fetchMarketsAndFilterActive();
 
-      // Phase 3: Fetch prices
-      await this.fetchPrices();
+      // 💾 Store markets immediately
+      await this.storeMarketsIncremental();
 
-      // Phase 4: Fetch orderbooks (optional)
-      if (this.config.enableOrderbookFetch) {
-        await this.fetchOrderbooks();
-      }
-
-      // Phase 5: Fetch market activity (optional)
-      if (this.config.enableMarketActivity) {
-        await this.fetchMarketActivity();
-      }
-
-      // 💾 INCREMENTAL: Store fully enriched markets (replaces basic)
-      await this.storeMarketsIncremental('enriched');
-
-      // 💾 INCREMENTAL: Store events (depends on markets for aggregation)
+      // 💾 Store events (needs markets for aggregation)
       await this.storeEventsIncremental();
 
-      // Phase 6: Fetch traders
-      await this.fetchTraders();
-      // 💾 INCREMENTAL: Store traders immediately
-      await this.storeTradersIncremental();
+      // Phase 3: Fetch trades for each active market
+      await this.fetchTradesForActiveMarkets();
 
-      // Phase 7: Fetch positions (optional)
-      if (this.config.enableTraderPositions) {
-        await this.fetchPositions();
-        // 💾 INCREMENTAL: Store positions immediately
-        await this.storePositionsIncremental();
+      // Phase 4: Fetch orderbooks (optional, for price data)
+      if (this.config.enableOrderbookFetch) {
+        await this.fetchOrderbooksForActiveMarkets();
       }
+
+      // Phase 5: Fetch traders (leaderboard)
+      await this.fetchTraders();
+      await this.storeTradersIncremental();
 
       // Complete
       this.status.currentPhase = PipelinePhase.COMPLETED;
       this.status.isRunning = false;
       this.status.completedAt = new Date();
 
-      console.log('✅ Aggregation Pipeline completed successfully');
-      console.log(`📊 Final counts: ${this.status.progress.eventsStored} events, ${this.status.progress.marketsStored} markets, ${this.status.progress.tradersStored} traders, ${this.status.progress.positionsStored} positions`);
+      console.log('');
+      console.log('═══════════════════════════════════════════════════');
+      console.log('✅ Aggregation Pipeline COMPLETED');
+      console.log('═══════════════════════════════════════════════════');
+      console.log(`📊 Events: ${this.status.progress.eventsStored}`);
+      console.log(`📊 Markets: ${this.status.progress.marketsStored} (${this.status.progress.activeMarkets} active)`);
+      console.log(`📊 Trades: ${this.status.progress.tradesStored}`);
+      console.log(`📊 Traders: ${this.status.progress.tradersStored}`);
+      console.log('═══════════════════════════════════════════════════');
+
       await this.recordPipelineEnd();
 
     } catch (error) {
@@ -217,146 +198,151 @@ export class AggregationPipeline {
     }
   }
 
+  // ============================================
+  // FETCH PHASES
+  // ============================================
+
   /**
-   * Phase 1: Fetch events from Gamma
+   * Phase 1: Fetch events from Gamma (active only)
    */
   private async fetchEvents(): Promise<void> {
     this.status.currentPhase = PipelinePhase.FETCHING_EVENTS;
-    console.log('📥 Phase 1: Fetching events...');
+    console.log('📥 Phase 1: Fetching ACTIVE events...');
+    console.log('═══════════════════════════════════════════════════');
 
-    this.events = await eventFetcher.fetchAllEvents();
+    // Fetch only active events (active=true, closed=false)
+    this.events = await eventFetcher.fetchAllEvents(true);
     this.status.progress.eventsFetched = this.events.length;
 
-    console.log(`✅ Phase 1 complete: ${this.events.length} events`);
-  }
-
-  /**
-   * Phase 2: Fetch markets from Gamma
-   */
-  private async fetchMarkets(): Promise<void> {
-    this.status.currentPhase = PipelinePhase.FETCHING_MARKETS;
-    console.log('📥 Phase 2: Fetching markets...');
-
-    this.markets = await marketFetcher.fetchAllMarkets();
-    this.status.progress.marketsFetched = this.markets.length;
-
-    console.log(`✅ Phase 2 complete: ${this.markets.length} markets`);
-  }
-
-  /**
-   * Phase 3: Fetch prices from CLOB
-   */
-  private async fetchPrices(): Promise<void> {
-    this.status.currentPhase = PipelinePhase.FETCHING_PRICES;
-    console.log('📥 Phase 3: Fetching prices...');
-
-    // Collect all token IDs from markets (parse JSON string)
-    const tokenIds: string[] = [];
-    for (const market of this.markets) {
-      const ids = getClobTokenIds(market);
-      tokenIds.push(...ids);
+    // Debug verification
+    console.log(`📊 VERIFICATION - Events:`);
+    console.log(`   • Array length: ${this.events.length}`);
+    console.log(`   • First 3 event IDs: ${this.events.slice(0, 3).map(e => e.id).join(', ')}`);
+    if (this.events.length > 0) {
+      console.log(`   • First event title: ${this.events[0].title}`);
+      console.log(`   • Memory check: ${JSON.stringify(this.events[0] || {}).length} bytes for first event`);
     }
+    console.log('═══════════════════════════════════════════════════');
 
-    console.log(`  Found ${tokenIds.length} token IDs to fetch prices for`);
-
-    this.priceMap = await priceFetcher.fetchPrices(
-      tokenIds,
-      (count) => { this.status.progress.pricesFetched = count; }
-    );
-    this.status.progress.pricesFetched = this.priceMap.size;
-
-    console.log(`✅ Phase 3 complete: ${this.priceMap.size} prices`);
+    console.log(`✅ Phase 1 complete: ${this.events.length} active events`);
   }
 
   /**
-   * Phase 4: Fetch orderbooks from CLOB
+   * Phase 2: Fetch ACTIVE markets directly from API (active=true, closed=false)
    */
-  private async fetchOrderbooks(): Promise<void> {
-    this.status.currentPhase = PipelinePhase.FETCHING_ORDERBOOKS;
-    console.log('📥 Phase 4: Fetching orderbooks...');
+  private async fetchMarketsAndFilterActive(): Promise<void> {
+    this.status.currentPhase = PipelinePhase.FETCHING_MARKETS;
+    console.log('📥 Phase 2: Fetching ACTIVE markets directly from API...');
+    console.log('═══════════════════════════════════════════════════');
 
-    // Get unique token IDs (first token from each market for representative orderbook)
+    // Fetch only active markets directly from API (active=true, closed=false)
+    this.activeMarkets = await marketFetcher.fetchAllMarkets(true);
+    this.markets = this.activeMarkets; // For compatibility
+    this.status.progress.marketsFetched = this.activeMarkets.length;
+    this.status.progress.activeMarkets = this.activeMarkets.length;
+
+    // Debug verification
+    console.log(`📊 VERIFICATION - Active Markets (from API):`);
+    console.log(`   • Total fetched: ${this.activeMarkets.length}`);
+    if (this.activeMarkets.length > 0) {
+      console.log(`   • First 3 market IDs: ${this.activeMarkets.slice(0, 3).map(m => m.id).join(', ')}`);
+      console.log(`   • First 3 conditionIds: ${this.activeMarkets.slice(0, 3).map(m => m.conditionId || 'N/A').join(', ')}`);
+      console.log(`   • First market title: ${this.activeMarkets[0].question}`);
+      console.log(`   • First market sample: ${JSON.stringify(this.activeMarkets[0] || {}, null, 2).substring(0, 500)}`);
+    } else {
+      console.log(`   ⚠️ No active markets found!`);
+    }
+    console.log('═══════════════════════════════════════════════════');
+
+    console.log(`✅ Phase 2 complete: ${this.activeMarkets.length} ACTIVE markets fetched`);
+  }
+
+  /**
+   * Phase 3: Fetch trades for each active market
+   */
+  private async fetchTradesForActiveMarkets(): Promise<void> {
+    this.status.currentPhase = PipelinePhase.FETCHING_MARKET_ACTIVITY; // Reuse phase
+    console.log('📥 Phase 3: Fetching trades for active markets...');
+    console.log('═══════════════════════════════════════════════════');
+
+    // Get condition IDs of active markets
+    const conditionIds = this.activeMarkets
+      .filter((m): m is GammaMarket & { conditionId: string } => !!m.conditionId)
+      .map(m => m.conditionId);
+
+    console.log(`📊 VERIFICATION - Condition IDs:`);
+    console.log(`   • Total active markets: ${this.activeMarkets.length}`);
+    console.log(`   • Markets with conditionId: ${conditionIds.length}`);
+    console.log(`   • First 5 conditionIds: ${conditionIds.slice(0, 5).join(', ')}`);
+    console.log('═══════════════════════════════════════════════════');
+
+    console.log(`  Found ${conditionIds.length} active markets with condition IDs`);
+
+    // Fetch trades with progress callback
+    let lastStoredCount = 0;
+    const STORE_BATCH_SIZE = 1000; // Store every 1000 trades
+
+    this.tradesMap = await tradesFetcher.fetchTradesForMarkets(
+      conditionIds,
+      100, // 100 trades per market
+      async (marketsDone, totalTrades, currentTradesMap) => {
+        this.status.progress.tradesFetched = totalTrades;
+
+        // Update this.tradesMap with current progress so storeTradesIncremental can access it
+        this.tradesMap = currentTradesMap;
+
+        // Store trades incrementally every STORE_BATCH_SIZE trades
+        if (totalTrades - lastStoredCount >= STORE_BATCH_SIZE) {
+          await this.storeTradesIncremental();
+          lastStoredCount = this.status.progress.tradesStored;
+          console.log(`  💾 Incremental store: ${lastStoredCount} trades stored, ${totalTrades} fetched`);
+        }
+      }
+    );
+
+    // Store any remaining trades
+    await this.storeTradesIncremental();
+
+    console.log(`✅ Phase 3 complete: ${this.status.progress.tradesFetched} trades fetched, ${this.status.progress.tradesStored} stored`);
+  }
+
+  /**
+   * Phase 4: Fetch orderbooks for active markets
+   */
+  private async fetchOrderbooksForActiveMarkets(): Promise<void> {
+    this.status.currentPhase = PipelinePhase.FETCHING_ORDERBOOKS;
+    console.log('📥 Phase 4: Fetching orderbooks for active markets...');
+
+    // Get token IDs from active markets
     const tokenIds: string[] = [];
-    for (const market of this.markets) {
+    for (const market of this.activeMarkets) {
       const ids = getClobTokenIds(market);
       if (ids.length > 0) {
-        tokenIds.push(ids[0]);
+        tokenIds.push(ids[0]); // First token per market
       }
     }
 
-    console.log(`  Found ${tokenIds.length} markets to fetch orderbooks for`);
+    console.log(`  Found ${tokenIds.length} tokens to fetch orderbooks for`);
 
     this.orderbookMap = await orderbookFetcher.fetchOrderbooks(
       tokenIds,
       (count) => { this.status.progress.orderbooksFetched = count; }
     );
-    this.status.progress.orderbooksFetched = this.orderbookMap.size;
 
     console.log(`✅ Phase 4 complete: ${this.orderbookMap.size} orderbooks`);
   }
 
   /**
-   * Phase 5: Fetch market activity from Data API
-   */
-  private async fetchMarketActivity(): Promise<void> {
-    this.status.currentPhase = PipelinePhase.FETCHING_MARKET_ACTIVITY;
-    console.log('📥 Phase 5: Fetching market activity...');
-
-    // Get market IDs (using conditionId)
-    const marketIds = this.markets
-      .filter((m): m is GammaMarket & { conditionId: string } => !!m.conditionId)
-      .map(m => m.conditionId);
-
-    console.log(`  Found ${marketIds.length} markets to fetch activity for`);
-
-    this.activityMap = await marketFetcher.fetchMarketActivity(
-      marketIds,
-      (count) => { this.status.progress.marketActivityFetched = count; }
-    );
-    this.status.progress.marketActivityFetched = this.activityMap.size;
-
-    console.log(`✅ Phase 5 complete: ${this.activityMap.size} market activities`);
-  }
-
-  /**
-   * Phase 6: Fetch traders (leaderboard)
+   * Phase 5: Fetch traders (leaderboard)
    */
   private async fetchTraders(): Promise<void> {
     this.status.currentPhase = PipelinePhase.FETCHING_TRADERS;
-    console.log('📥 Phase 6: Fetching traders...');
+    console.log('📥 Phase 5: Fetching traders...');
 
     this.traders = await traderFetcher.fetchLeaderboard(this.config.topTradersLimit);
     this.status.progress.tradersFetched = this.traders.length;
 
-    console.log(`✅ Phase 6 complete: ${this.traders.length} traders`);
-  }
-
-  /**
-   * Phase 7: Fetch positions for traders
-   */
-  private async fetchPositions(): Promise<void> {
-    this.status.currentPhase = PipelinePhase.FETCHING_POSITIONS;
-    console.log('📥 Phase 7: Fetching positions...');
-
-    const traderAddresses = this.traders
-      .filter(t => t.address)
-      .map(t => t.address);
-
-    console.log(`  Fetching positions for ${traderAddresses.length} traders`);
-
-    this.positionsMap = await traderFetcher.fetchPositionsForTraders(
-      traderAddresses,
-      (count) => { this.status.progress.positionsFetched = count; }
-    );
-
-    // Count total positions
-    let totalPositions = 0;
-    for (const positions of this.positionsMap.values()) {
-      totalPositions += positions.length;
-    }
-    this.status.progress.positionsFetched = totalPositions;
-
-    console.log(`✅ Phase 7 complete: ${totalPositions} positions for ${this.positionsMap.size} traders`);
+    console.log(`✅ Phase 5 complete: ${this.traders.length} traders`);
   }
 
   // ============================================
@@ -365,36 +351,31 @@ export class AggregationPipeline {
 
   /**
    * Store markets incrementally
-   * @param mode 'basic' = without price/orderbook enrichment, 'enriched' = full enrichment
    */
-  private async storeMarketsIncremental(mode: 'basic' | 'enriched'): Promise<void> {
+  private async storeMarketsIncremental(): Promise<void> {
     this.status.currentPhase = PipelinePhase.STORING;
-    console.log(`💾 Storing markets (${mode})...`);
+    console.log('💾 Storing markets...');
 
     try {
-      // Transform markets with available data
-      this.enrichedMarkets = marketTransformer.transform(
-        this.markets,
+      const enrichedMarkets = marketTransformer.transform(
+        this.activeMarkets, // Only store active markets
         this.events,
         this.priceMap,
         this.orderbookMap,
-        this.activityMap
+        new Map() // No activity data
       );
 
-      if (this.enrichedMarkets.length > 0) {
-        // Store in batches to avoid memory issues with large datasets
-        const batchSize = 1000;
-        for (let i = 0; i < this.enrichedMarkets.length; i += batchSize) {
-          const batch = this.enrichedMarkets.slice(i, i + batchSize);
+      if (enrichedMarkets.length > 0) {
+        const batchSize = 500;
+        for (let i = 0; i < enrichedMarkets.length; i += batchSize) {
+          const batch = enrichedMarkets.slice(i, i + batchSize);
           await polymarketDb.insert('polymarket_markets', batch);
-          console.log(`  💾 Stored markets batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(this.enrichedMarkets.length / batchSize)} (${Math.min(i + batchSize, this.enrichedMarkets.length)}/${this.enrichedMarkets.length})`);
         }
-        this.status.progress.marketsStored = this.enrichedMarkets.length;
-        console.log(`✅ Stored ${this.enrichedMarkets.length} markets (${mode})`);
+        this.status.progress.marketsStored = enrichedMarkets.length;
+        console.log(`✅ Stored ${enrichedMarkets.length} markets`);
       }
     } catch (error) {
-      console.error(`⚠️ Failed to store markets (${mode}):`, error);
-      // Don't throw - allow pipeline to continue
+      console.error('⚠️ Failed to store markets:', error);
     }
   }
 
@@ -406,16 +387,39 @@ export class AggregationPipeline {
     console.log('💾 Storing events...');
 
     try {
-      // Transform events (needs markets for aggregation)
-      this.enrichedEvents = eventTransformer.transform(this.events, this.markets);
+      const enrichedEvents = eventTransformer.transform(this.events, this.activeMarkets);
 
-      if (this.enrichedEvents.length > 0) {
-        await polymarketDb.insert('polymarket_events', this.enrichedEvents);
-        this.status.progress.eventsStored = this.enrichedEvents.length;
-        console.log(`✅ Stored ${this.enrichedEvents.length} events`);
+      if (enrichedEvents.length > 0) {
+        await polymarketDb.insert('polymarket_events', enrichedEvents);
+        this.status.progress.eventsStored = enrichedEvents.length;
+        console.log(`✅ Stored ${enrichedEvents.length} events`);
       }
     } catch (error) {
       console.error('⚠️ Failed to store events:', error);
+    }
+  }
+
+  /**
+   * Store trades incrementally
+   */
+  private async storeTradesIncremental(): Promise<void> {
+    try {
+      const allTrades = tradesFetcher.flattenTrades(this.tradesMap);
+
+      // Only store new trades (not already stored)
+      const newTrades = allTrades.slice(this.status.progress.tradesStored);
+
+      if (newTrades.length > 0) {
+        const batchSize = 500;
+        for (let i = 0; i < newTrades.length; i += batchSize) {
+          const batch = newTrades.slice(i, i + batchSize);
+          await polymarketDb.insert('polymarket_trades', batch);
+        }
+        this.status.progress.tradesStored += newTrades.length;
+        console.log(`  💾 Stored ${this.status.progress.tradesStored} trades total`);
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to store trades:', error);
     }
   }
 
@@ -427,42 +431,15 @@ export class AggregationPipeline {
     console.log('💾 Storing traders...');
 
     try {
-      // Transform traders
-      this.enrichedTraders = traderTransformer.transform(this.traders);
+      const enrichedTraders = traderTransformer.transform(this.traders);
 
-      if (this.enrichedTraders.length > 0) {
-        await polymarketDb.insert('polymarket_traders', this.enrichedTraders);
-        this.status.progress.tradersStored = this.enrichedTraders.length;
-        console.log(`✅ Stored ${this.enrichedTraders.length} traders`);
+      if (enrichedTraders.length > 0) {
+        await polymarketDb.insert('polymarket_traders', enrichedTraders);
+        this.status.progress.tradersStored = enrichedTraders.length;
+        console.log(`✅ Stored ${enrichedTraders.length} traders`);
       }
     } catch (error) {
       console.error('⚠️ Failed to store traders:', error);
-    }
-  }
-
-  /**
-   * Store positions incrementally
-   */
-  private async storePositionsIncremental(): Promise<void> {
-    this.status.currentPhase = PipelinePhase.STORING;
-    console.log('💾 Storing positions...');
-
-    try {
-      // Transform positions
-      this.enrichedPositions = positionTransformer.transform(this.positionsMap);
-
-      if (this.enrichedPositions.length > 0) {
-        // Store in batches
-        const batchSize = 1000;
-        for (let i = 0; i < this.enrichedPositions.length; i += batchSize) {
-          const batch = this.enrichedPositions.slice(i, i + batchSize);
-          await polymarketDb.insert('polymarket_trader_positions', batch);
-        }
-        this.status.progress.positionsStored = this.enrichedPositions.length;
-        console.log(`✅ Stored ${this.enrichedPositions.length} positions`);
-      }
-    } catch (error) {
-      console.error('⚠️ Failed to store positions:', error);
     }
   }
 
@@ -470,9 +447,6 @@ export class AggregationPipeline {
   // PIPELINE RUN TRACKING
   // ============================================
 
-  /**
-   * Record pipeline start in ClickHouse
-   */
   private async recordPipelineStart(): Promise<void> {
     try {
       await polymarketDb.insert('polymarket_pipeline_runs', [{
@@ -482,6 +456,7 @@ export class AggregationPipeline {
         completed_at: null,
         events_fetched: 0,
         markets_fetched: 0,
+        trades_fetched: 0,
         traders_fetched: 0,
         positions_fetched: 0,
         error_message: '',
@@ -491,9 +466,6 @@ export class AggregationPipeline {
     }
   }
 
-  /**
-   * Record pipeline end in ClickHouse
-   */
   private async recordPipelineEnd(): Promise<void> {
     try {
       await polymarketDb.insert('polymarket_pipeline_runs', [{
@@ -502,9 +474,10 @@ export class AggregationPipeline {
         started_at: this.status.startedAt,
         completed_at: this.status.completedAt,
         events_fetched: this.status.progress.eventsFetched,
-        markets_fetched: this.status.progress.marketsFetched,
-        traders_fetched: this.status.progress.tradersFetched,
-        positions_fetched: this.status.progress.positionsFetched,
+        markets_fetched: this.status.progress.marketsStored,
+        trades_fetched: this.status.progress.tradesStored,
+        traders_fetched: this.status.progress.tradersStored,
+        positions_fetched: this.status.progress.positionsStored,
         error_message: this.status.errorMessage || '',
       }]);
     } catch (error) {

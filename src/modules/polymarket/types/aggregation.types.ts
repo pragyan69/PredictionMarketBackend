@@ -25,13 +25,16 @@ export interface PipelineConfig {
 export interface PipelineProgress {
   eventsFetched: number;
   marketsFetched: number;
+  activeMarkets: number;
   pricesFetched: number;
   orderbooksFetched: number;
   marketActivityFetched: number;
+  tradesFetched: number;
   tradersFetched: number;
   positionsFetched: number;
   eventsStored: number;
   marketsStored: number;
+  tradesStored: number;
   tradersStored: number;
   positionsStored: number;
 }
