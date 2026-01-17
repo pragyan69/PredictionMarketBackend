@@ -28,11 +28,20 @@ import {
   traderTransformer,
 } from './transformers';
 
+// ========================================
+// TEST LIMITS LOCATION: Change these values for testing vs production
+// Set to 0 for unlimited (production mode)
+// ========================================
 const DEFAULT_CONFIG: PipelineConfig = {
   topTradersLimit: 100, // Limit traders to avoid too many position fetches
   enableOrderbookFetch: true,
   enableMarketActivity: false, // Disable since we're fetching trades directly
   enableTraderPositions: false, // Disable for faster execution
+
+  // TEST LIMITS (set to 0 for production/unlimited)
+  maxEvents: 1000,        // 0 = unlimited | Testing: 1000
+  maxMarkets: 10000,      // 0 = unlimited | Testing: 10000
+  maxTotalTrades: 100000, // 0 = unlimited | Testing: 100000
 };
 
 export class AggregationPipeline {
@@ -204,14 +213,24 @@ export class AggregationPipeline {
 
   /**
    * Phase 1: Fetch events from Gamma (active only)
+   * LIMIT APPLIED: config.maxEvents (0 = unlimited)
    */
   private async fetchEvents(): Promise<void> {
     this.status.currentPhase = PipelinePhase.FETCHING_EVENTS;
-    console.log('📥 Phase 1: Fetching ACTIVE events...');
+    const limit = this.config.maxEvents || 0;
+    console.log(`📥 Phase 1: Fetching ACTIVE events... ${limit > 0 ? `(LIMIT: ${limit})` : '(unlimited)'}`);
     console.log('═══════════════════════════════════════════════════');
 
     // Fetch only active events (active=true, closed=false)
-    this.events = await eventFetcher.fetchAllEvents(true);
+    let events = await eventFetcher.fetchAllEvents(true);
+
+    // Apply limit if set
+    if (limit > 0 && events.length > limit) {
+      console.log(`   ⚠️ LIMIT APPLIED: Reducing from ${events.length} to ${limit} events`);
+      events = events.slice(0, limit);
+    }
+
+    this.events = events;
     this.status.progress.eventsFetched = this.events.length;
 
     // Debug verification
@@ -229,14 +248,24 @@ export class AggregationPipeline {
 
   /**
    * Phase 2: Fetch ACTIVE markets directly from API (active=true, closed=false)
+   * LIMIT APPLIED: config.maxMarkets (0 = unlimited)
    */
   private async fetchMarketsAndFilterActive(): Promise<void> {
     this.status.currentPhase = PipelinePhase.FETCHING_MARKETS;
-    console.log('📥 Phase 2: Fetching ACTIVE markets directly from API...');
+    const limit = this.config.maxMarkets || 0;
+    console.log(`📥 Phase 2: Fetching ACTIVE markets... ${limit > 0 ? `(LIMIT: ${limit})` : '(unlimited)'}`);
     console.log('═══════════════════════════════════════════════════');
 
     // Fetch only active markets directly from API (active=true, closed=false)
-    this.activeMarkets = await marketFetcher.fetchAllMarkets(true);
+    let markets = await marketFetcher.fetchAllMarkets(true);
+
+    // Apply limit if set
+    if (limit > 0 && markets.length > limit) {
+      console.log(`   ⚠️ LIMIT APPLIED: Reducing from ${markets.length} to ${limit} markets`);
+      markets = markets.slice(0, limit);
+    }
+
+    this.activeMarkets = markets;
     this.markets = this.activeMarkets; // For compatibility
     this.status.progress.marketsFetched = this.activeMarkets.length;
     this.status.progress.activeMarkets = this.activeMarkets.length;
@@ -259,10 +288,12 @@ export class AggregationPipeline {
 
   /**
    * Phase 3: Fetch trades for each active market
+   * LIMIT APPLIED: config.maxTotalTrades (0 = unlimited)
    */
   private async fetchTradesForActiveMarkets(): Promise<void> {
     this.status.currentPhase = PipelinePhase.FETCHING_MARKET_ACTIVITY; // Reuse phase
-    console.log('📥 Phase 3: Fetching trades for active markets...');
+    const maxTrades = this.config.maxTotalTrades || 0;
+    console.log(`📥 Phase 3: Fetching trades... ${maxTrades > 0 ? `(LIMIT: ${maxTrades})` : '(unlimited)'}`);
     console.log('═══════════════════════════════════════════════════');
 
     // Get condition IDs of active markets
@@ -281,15 +312,22 @@ export class AggregationPipeline {
     // Fetch trades with progress callback
     let lastStoredCount = 0;
     const STORE_BATCH_SIZE = 1000; // Store every 1000 trades
+    let limitReached = false;
 
     this.tradesMap = await tradesFetcher.fetchTradesForMarkets(
       conditionIds,
       100, // 100 trades per market
-      async (marketsDone, totalTrades, currentTradesMap) => {
+      async (_marketsDone, totalTrades, currentTradesMap) => {
         this.status.progress.tradesFetched = totalTrades;
 
         // Update this.tradesMap with current progress so storeTradesIncremental can access it
         this.tradesMap = currentTradesMap;
+
+        // Check if limit reached
+        if (maxTrades > 0 && totalTrades >= maxTrades && !limitReached) {
+          limitReached = true;
+          console.log(`   ⚠️ LIMIT REACHED: ${maxTrades} trades - stopping fetch`);
+        }
 
         // Store trades incrementally every STORE_BATCH_SIZE trades
         if (totalTrades - lastStoredCount >= STORE_BATCH_SIZE) {
@@ -297,7 +335,11 @@ export class AggregationPipeline {
           lastStoredCount = this.status.progress.tradesStored;
           console.log(`  💾 Incremental store: ${lastStoredCount} trades stored, ${totalTrades} fetched`);
         }
-      }
+
+        // Return true to signal stop if limit reached
+        return limitReached;
+      },
+      maxTrades // Pass the limit to the fetcher
     );
 
     // Store any remaining trades

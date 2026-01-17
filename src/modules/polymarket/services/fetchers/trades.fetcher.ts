@@ -80,19 +80,28 @@ export class TradesFetcher {
 
   /**
    * Fetch trades for multiple markets
-   * @param onProgress - Callback receives (marketsDone, totalTrades, currentTradesMap) so caller can store incrementally
+   * @param onProgress - Callback receives (marketsDone, totalTrades, currentTradesMap), returns true to stop
+   * @param maxTotalTrades - Maximum total trades to fetch (0 = unlimited)
    */
   async fetchTradesForMarkets(
     conditionIds: string[],
     tradesPerMarket: number = 100,
-    onProgress?: (marketsDone: number, totalTrades: number, tradesMap: Map<string, EnrichedTrade[]>) => void | Promise<void>
+    onProgress?: (marketsDone: number, totalTrades: number, tradesMap: Map<string, EnrichedTrade[]>) => boolean | void | Promise<boolean | void>,
+    maxTotalTrades: number = 0
   ): Promise<Map<string, EnrichedTrade[]>> {
-    console.log(`📥 Fetching trades for ${conditionIds.length} markets (${tradesPerMarket} trades each)...`);
+    const limitInfo = maxTotalTrades > 0 ? `(LIMIT: ${maxTotalTrades})` : '(unlimited)';
+    console.log(`📥 Fetching trades for ${conditionIds.length} markets (${tradesPerMarket} trades each) ${limitInfo}...`);
 
     const tradesMap = new Map<string, EnrichedTrade[]>();
     let totalTrades = 0;
 
     for (let i = 0; i < conditionIds.length; i++) {
+      // Check if limit reached before fetching
+      if (maxTotalTrades > 0 && totalTrades >= maxTotalTrades) {
+        console.log(`  ⚠️ LIMIT REACHED: ${totalTrades} trades - stopping at market ${i}/${conditionIds.length}`);
+        break;
+      }
+
       const conditionId = conditionIds[i];
 
       const trades = await this.fetchTradesForMarket(conditionId, tradesPerMarket);
@@ -104,7 +113,11 @@ export class TradesFetcher {
 
       if (onProgress) {
         // Pass the current tradesMap so caller can store incrementally
-        await onProgress(i + 1, totalTrades, tradesMap);
+        const shouldStop = await onProgress(i + 1, totalTrades, tradesMap);
+        if (shouldStop) {
+          console.log(`  ⚠️ Stop signal received from callback at ${totalTrades} trades`);
+          break;
+        }
       }
 
       // Progress log every 10 markets

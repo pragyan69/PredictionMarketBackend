@@ -20,6 +20,14 @@ export interface PipelineConfig {
   enableOrderbookFetch: boolean;
   enableMarketActivity: boolean;
   enableTraderPositions: boolean;
+
+  // ========================================
+  // TEST LIMITS - Set to 0 for unlimited (production)
+  // Location: src/modules/polymarket/types/aggregation.types.ts
+  // ========================================
+  maxEvents: number;        // 0 = unlimited, e.g., 1000 for testing
+  maxMarkets: number;       // 0 = unlimited, e.g., 10000 for testing
+  maxTotalTrades: number;   // 0 = unlimited, e.g., 100000 for testing
 }
 
 export interface PipelineProgress {
