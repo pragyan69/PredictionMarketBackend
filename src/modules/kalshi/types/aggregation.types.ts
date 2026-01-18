@@ -9,7 +9,7 @@ export interface KalshiPipelineConfig {
   enableOrderbookFetch: boolean;
   enableCandlestickFetch: boolean;
 
-  // TEST LIMITS (set to 0 for production/unlimited)
+  // Limits (0 = unlimited/production mode)
   maxEvents: number;
   maxMarkets: number;
   maxTotalTrades: number;

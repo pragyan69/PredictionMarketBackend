@@ -122,14 +122,13 @@ export class KalshiAPIClient {
   /**
    * Fetch all markets with pagination
    * @param status - Optional filter by status ('open' for active markets)
-   * @param maxItems - Optional limit for testing (set to 0 for unlimited)
    */
-  async getAllMarkets(status?: 'unopened' | 'open' | 'paused' | 'closed' | 'settled', maxItems: number = 10000): Promise<KalshiMarket[]> {
+  async getAllMarkets(status?: 'unopened' | 'open' | 'paused' | 'closed' | 'settled'): Promise<KalshiMarket[]> {
     const allMarkets: KalshiMarket[] = [];
     let cursor: string | undefined;
     const limit = 1000;
 
-    console.log(`📥 Fetching all Kalshi markets (status=${status || 'all'}, maxItems=${maxItems || 'unlimited'})...`);
+    console.log(`📥 Fetching all Kalshi markets (status=${status || 'all'})...`);
 
     while (true) {
       const params: any = { limit };
@@ -144,12 +143,6 @@ export class KalshiAPIClient {
 
       allMarkets.push(...response.markets);
       console.log(`  Fetched ${allMarkets.length} markets...`);
-
-      // TEST LIMITER: Stop if we've reached maxItems (remove for production)
-      if (maxItems > 0 && allMarkets.length >= maxItems) {
-        console.log(`  ⚡ LIMITER: Stopping at ${allMarkets.length} markets (maxItems=${maxItems})`);
-        break;
-      }
 
       if (response.markets.length < limit || !response.cursor) {
         break;
@@ -201,14 +194,13 @@ export class KalshiAPIClient {
   /**
    * Fetch all events with pagination
    * @param status - Optional filter by status ('open' for active events)
-   * @param maxItems - Optional limit for testing (set to 0 for unlimited)
    */
-  async getAllEvents(status?: 'open' | 'closed' | 'settled', maxItems: number = 1000): Promise<KalshiEvent[]> {
+  async getAllEvents(status?: 'open' | 'closed' | 'settled'): Promise<KalshiEvent[]> {
     const allEvents: KalshiEvent[] = [];
     let cursor: string | undefined;
     const limit = 200;
 
-    console.log(`📥 Fetching all Kalshi events (status=${status || 'all'}, maxItems=${maxItems || 'unlimited'})...`);
+    console.log(`📥 Fetching all Kalshi events (status=${status || 'all'})...`);
 
     while (true) {
       const params: any = { limit, with_nested_markets: true };
@@ -223,12 +215,6 @@ export class KalshiAPIClient {
 
       allEvents.push(...response.events);
       console.log(`  Fetched ${allEvents.length} events...`);
-
-      // TEST LIMITER: Stop if we've reached maxItems (remove for production)
-      if (maxItems > 0 && allEvents.length >= maxItems) {
-        console.log(`  ⚡ LIMITER: Stopping at ${allEvents.length} events (maxItems=${maxItems})`);
-        break;
-      }
 
       if (response.events.length < limit || !response.cursor) {
         break;

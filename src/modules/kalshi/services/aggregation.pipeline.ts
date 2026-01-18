@@ -14,29 +14,13 @@ import {
 import { kalshiEventFetcher, kalshiMarketFetcher } from './fetchers';
 import { kalshiEventTransformer, kalshiMarketTransformer } from './transformers';
 
-// ========================================
-// TEST LIMITS LOCATION: Change these values for testing vs production
-// Set to 0 for unlimited (production mode)
-// ========================================
-//
-// QUICK API TEST VALUES (verify APIs work):
-//   maxEvents: 5, maxMarkets: 10, maxTotalTrades: 50
-//
-// MODERATE TEST VALUES (sample data):
-//   maxEvents: 50, maxMarkets: 100, maxTotalTrades: 1000
-//
-// PRODUCTION VALUES (full data):
-//   maxEvents: 0, maxMarkets: 0, maxTotalTrades: 0
-// ========================================
 const DEFAULT_CONFIG: KalshiPipelineConfig = {
   topTradersLimit: 100,
-  enableOrderbookFetch: false, // Orderbook comes from WebSocket
-  enableCandlestickFetch: false, // Candlesticks can be fetched separately
-
-  // ⚠️ CURRENT: QUICK API TEST MODE - Change to 0 for production
-  maxEvents: 5,           // 0 = unlimited | Quick test: 5 | Moderate: 50
-  maxMarkets: 10,         // 0 = unlimited | Quick test: 10 | Moderate: 100
-  maxTotalTrades: 50,     // 0 = unlimited | Quick test: 50 | Moderate: 1000
+  enableOrderbookFetch: false,
+  enableCandlestickFetch: false,
+  maxEvents: 0,
+  maxMarkets: 0,
+  maxTotalTrades: 0,
 };
 
 export class KalshiAggregationPipeline {
@@ -45,7 +29,6 @@ export class KalshiAggregationPipeline {
 
   // Raw data
   private events: KalshiEvent[] = [];
-  private markets: KalshiMarket[] = [];
   private activeMarkets: KalshiMarket[] = [];
   private orderbookMap: Map<string, KalshiOrderbookSummary> = new Map();
 
@@ -88,9 +71,9 @@ export class KalshiAggregationPipeline {
 
     switch (config.testMode) {
       case 'quick':
-        return { ...config, maxEvents: 5, maxMarkets: 10, maxTotalTrades: 50 };
+        return { ...config, maxEvents: 50, maxMarkets: 500, maxTotalTrades: 5000 };
       case 'moderate':
-        return { ...config, maxEvents: 50, maxMarkets: 100, maxTotalTrades: 1000 };
+        return { ...config, maxEvents: 1000, maxMarkets: 10000, maxTotalTrades: 100000 };
       case 'production':
         return { ...config, maxEvents: 0, maxMarkets: 0, maxTotalTrades: 0 };
       default:
@@ -146,7 +129,6 @@ export class KalshiAggregationPipeline {
    */
   private reset(): void {
     this.events = [];
-    this.markets = [];
     this.activeMarkets = [];
     this.orderbookMap = new Map();
     this.status.progress = this.createEmptyProgress();
@@ -204,31 +186,18 @@ export class KalshiAggregationPipeline {
    */
   private async fetchEvents(): Promise<void> {
     this.status.currentPhase = KalshiPipelinePhase.FETCHING_EVENTS;
-    const limit = this.config.maxEvents || 0;
-    console.log(`📥 Phase 1: Fetching ACTIVE events... ${limit > 0 ? `(LIMIT: ${limit})` : '(unlimited)'}`);
+    console.log(`📥 Phase 1: Fetching ALL active events...`);
     console.log('═══════════════════════════════════════════════════');
 
-    // Fetch only active (open) events
-    let events = await kalshiEventFetcher.fetchAllEvents(true);
-
-    // Apply limit if set
-    if (limit > 0 && events.length > limit) {
-      console.log(`   ⚠️ LIMIT APPLIED: Reducing from ${events.length} to ${limit} events`);
-      events = events.slice(0, limit);
-    }
-
-    this.events = events;
+    // Fetch only active (open) events - no limits
+    this.events = await kalshiEventFetcher.fetchAllEvents(true);
     this.status.progress.eventsFetched = this.events.length;
 
-    // Debug verification
-    console.log(`📊 VERIFICATION - Events:`);
-    console.log(`   • Array length: ${this.events.length}`);
-    console.log(`   • First 3 event tickers: ${this.events.slice(0, 3).map(e => e.event_ticker).join(', ')}`);
+    console.log(`📊 Events fetched: ${this.events.length}`);
     if (this.events.length > 0) {
-      console.log(`   • First event title: ${this.events[0].title}`);
+      console.log(`   • First event: ${this.events[0].title}`);
     }
     console.log('═══════════════════════════════════════════════════');
-
     console.log(`✅ Phase 1 complete: ${this.events.length} active events`);
   }
 
@@ -237,36 +206,20 @@ export class KalshiAggregationPipeline {
    */
   private async fetchMarketsAndFilterActive(): Promise<void> {
     this.status.currentPhase = KalshiPipelinePhase.FETCHING_MARKETS;
-    const limit = this.config.maxMarkets || 0;
-    console.log(`📥 Phase 2: Fetching ACTIVE markets... ${limit > 0 ? `(LIMIT: ${limit})` : '(unlimited)'}`);
+    console.log(`📥 Phase 2: Fetching ALL active markets...`);
     console.log('═══════════════════════════════════════════════════');
 
-    // Fetch only active (open) markets
-    let markets = await kalshiMarketFetcher.fetchAllMarkets(true);
-
-    // Apply limit if set
-    if (limit > 0 && markets.length > limit) {
-      console.log(`   ⚠️ LIMIT APPLIED: Reducing from ${markets.length} to ${limit} markets`);
-      markets = markets.slice(0, limit);
-    }
-
-    this.activeMarkets = markets;
-    this.markets = this.activeMarkets;
+    // Fetch only active (open) markets - no limits
+    this.activeMarkets = await kalshiMarketFetcher.fetchAllMarkets(true);
     this.status.progress.marketsFetched = this.activeMarkets.length;
     this.status.progress.activeMarkets = this.activeMarkets.length;
 
-    // Debug verification
-    console.log(`📊 VERIFICATION - Active Markets (from API):`);
-    console.log(`   • Total fetched: ${this.activeMarkets.length}`);
+    console.log(`📊 Markets fetched: ${this.activeMarkets.length}`);
     if (this.activeMarkets.length > 0) {
-      console.log(`   • First 3 market tickers: ${this.activeMarkets.slice(0, 3).map(m => m.ticker).join(', ')}`);
-      console.log(`   • First market title: ${this.activeMarkets[0].title}`);
-    } else {
-      console.log(`   ⚠️ No active markets found!`);
+      console.log(`   • First market: ${this.activeMarkets[0].title}`);
     }
     console.log('═══════════════════════════════════════════════════');
-
-    console.log(`✅ Phase 2 complete: ${this.activeMarkets.length} ACTIVE markets fetched`);
+    console.log(`✅ Phase 2 complete: ${this.activeMarkets.length} active markets fetched`);
   }
 
   // ============================================

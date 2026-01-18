@@ -21,13 +21,10 @@ export interface PipelineConfig {
   enableMarketActivity: boolean;
   enableTraderPositions: boolean;
 
-  // ========================================
-  // TEST LIMITS - Set to 0 for unlimited (production)
-  // Location: src/modules/polymarket/types/aggregation.types.ts
-  // ========================================
-  maxEvents: number;        // 0 = unlimited, e.g., 1000 for testing
-  maxMarkets: number;       // 0 = unlimited, e.g., 10000 for testing
-  maxTotalTrades: number;   // 0 = unlimited, e.g., 100000 for testing
+  // Limits (0 = unlimited/production mode)
+  maxEvents: number;
+  maxMarkets: number;
+  maxTotalTrades: number;
 }
 
 export interface PipelineProgress {

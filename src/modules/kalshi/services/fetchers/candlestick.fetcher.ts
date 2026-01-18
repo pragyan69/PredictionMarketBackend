@@ -52,24 +52,20 @@ export class KalshiCandlestickFetcher {
 
   /**
    * Fetch candlesticks for multiple markets
-   * @param maxMarkets - Optional limit for testing (set to 0 for unlimited)
    */
   async fetchCandlesticksForMarkets(
     markets: KalshiMarket[],
     startTs: number,
     endTs: number,
     periodInterval: 1 | 60 | 1440 = 60,
-    onProgress?: (count: number) => void,
-    maxMarkets: number = 10
+    onProgress?: (count: number) => void
   ): Promise<Map<string, KalshiCandlestick[]>> {
     const candlestickMap = new Map<string, KalshiCandlestick[]>();
 
-    // TEST LIMITER: Limit number of markets to process
-    const marketsToProcess = maxMarkets > 0 ? markets.slice(0, maxMarkets) : markets;
-    console.log(`📥 Fetching candlesticks for ${marketsToProcess.length} markets (maxMarkets=${maxMarkets || 'unlimited'}, total available=${markets.length})...`);
+    console.log(`📥 Fetching candlesticks for ${markets.length} markets...`);
 
-    for (let i = 0; i < marketsToProcess.length; i++) {
-      const market = marketsToProcess[i];
+    for (let i = 0; i < markets.length; i++) {
+      const market = markets[i];
       const result = await this.fetchMarketCandlesticks(market, startTs, endTs, periodInterval);
 
       if (result.candlesticks.length > 0) {
@@ -82,11 +78,11 @@ export class KalshiCandlestickFetcher {
 
       // Progress log every 50 markets
       if ((i + 1) % 50 === 0) {
-        console.log(`  📊 Processed ${i + 1}/${marketsToProcess.length} markets`);
+        console.log(`  📊 Processed ${i + 1}/${markets.length} markets`);
       }
 
       // Delay to avoid rate limiting
-      if (i < marketsToProcess.length - 1) {
+      if (i < markets.length - 1) {
         await this.delay(this.DELAY_BETWEEN_FETCHES);
       }
     }
