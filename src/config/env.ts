@@ -24,11 +24,18 @@ export const env = {
     rtdsWsUrl: process.env.POLYMARKET_RTDS_WS_URL || 'wss://ws-live-data.polymarket.com',
   },
   
+  kalshi: {
+    apiUrl: process.env.KALSHI_API_URL || 'https://api.elections.kalshi.com/trade-api/v2',
+    wsUrl: process.env.KALSHI_WS_URL || 'wss://api.elections.kalshi.com',
+    apiKey: process.env.KALSHI_API_KEY || '',
+  },
+
   rateLimit: {
     perSecond: parseInt(process.env.RATE_LIMIT_PER_SECOND || '10', 10),
     gammaApi: parseInt(process.env.RATE_LIMIT_GAMMA_API || '5', 10),
     clobApi: parseInt(process.env.RATE_LIMIT_CLOB_API || '10', 10),
     dataApi: parseInt(process.env.RATE_LIMIT_DATA_API || '5', 10),
+    kalshiApi: parseInt(process.env.RATE_LIMIT_KALSHI_API || '5', 10),
   },
   
   logging: {
