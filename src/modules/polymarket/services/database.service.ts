@@ -119,7 +119,8 @@ class PolymarketDatabaseService {
   } = {}): Promise<MarketRecord[]> {
     const { status = 'active', limit = 50, offset = 0, search, eventId, protocol } = params;
 
-    let whereClause = `protocol = '${protocol || this.protocol}'`;
+    // Protocol filter: include records with matching protocol OR empty/null protocol (for backward compatibility)
+    let whereClause = `(protocol = '${protocol || this.protocol}' OR protocol = '' OR protocol IS NULL)`;
     if (status === 'active') {
       whereClause += ' AND active = 1 AND closed = 0';
     } else if (status === 'closed') {
@@ -138,23 +139,29 @@ class PolymarketDatabaseService {
       ORDER BY volume DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
-    return this.safeQuery<MarketRecord>(sql);
+    console.log('[PolymarketDbService] getMarkets SQL:', sql);
+    const results = await this.safeQuery<MarketRecord>(sql);
+    console.log('[PolymarketDbService] getMarkets results:', results.length);
+    return results;
   }
 
   async getMarketById(id: string, protocol?: string): Promise<MarketRecord | null> {
-    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE protocol = '${protocol || this.protocol}' AND id = '${id}' LIMIT 1`;
+    const p = protocol || this.protocol;
+    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL) AND id = '${id}' LIMIT 1`;
     const results = await this.safeQuery<MarketRecord>(sql);
     return results.length > 0 ? results[0] : null;
   }
 
   async getMarketByConditionId(conditionId: string, protocol?: string): Promise<MarketRecord | null> {
-    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE protocol = '${protocol || this.protocol}' AND condition_id = '${conditionId}' LIMIT 1`;
+    const p = protocol || this.protocol;
+    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL) AND condition_id = '${conditionId}' LIMIT 1`;
     const results = await this.safeQuery<MarketRecord>(sql);
     return results.length > 0 ? results[0] : null;
   }
 
   async getMarketCount(status?: 'active' | 'closed' | 'all', protocol?: string): Promise<number> {
-    let whereClause = `protocol = '${protocol || this.protocol}'`;
+    const p = protocol || this.protocol;
+    let whereClause = `(protocol = '${p}' OR protocol = '' OR protocol IS NULL)`;
     if (status === 'active') whereClause += ' AND active = 1 AND closed = 0';
     else if (status === 'closed') whereClause += ' AND closed = 1';
 
@@ -165,7 +172,8 @@ class PolymarketDatabaseService {
 
   async getEvents(params: { limit?: number; offset?: number; search?: string; protocol?: string } = {}): Promise<EventRecord[]> {
     const { limit = 50, offset = 0, search, protocol } = params;
-    let whereClause = `protocol = '${protocol || this.protocol}'`;
+    const p = protocol || this.protocol;
+    let whereClause = `(protocol = '${p}' OR protocol = '' OR protocol IS NULL)`;
     if (search) whereClause += ` AND (title ILIKE '%${search}%' OR slug ILIKE '%${search}%')`;
 
     const sql = `
@@ -178,20 +186,23 @@ class PolymarketDatabaseService {
   }
 
   async getEventById(id: string, protocol?: string): Promise<EventRecord | null> {
-    const sql = `SELECT * FROM ${this.databaseName}.events WHERE protocol = '${protocol || this.protocol}' AND id = '${id}' LIMIT 1`;
+    const p = protocol || this.protocol;
+    const sql = `SELECT * FROM ${this.databaseName}.events WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL) AND id = '${id}' LIMIT 1`;
     const results = await this.safeQuery<EventRecord>(sql);
     return results.length > 0 ? results[0] : null;
   }
 
   async getLeaderboard(params: { limit?: number; offset?: number; protocol?: string } = {}): Promise<TraderRecord[]> {
     const { limit = 100, offset = 0, protocol } = params;
-    const sql = `SELECT * FROM ${this.databaseName}.traders WHERE protocol = '${protocol || this.protocol}' ORDER BY rank ASC LIMIT ${limit} OFFSET ${offset}`;
+    const p = protocol || this.protocol;
+    const sql = `SELECT * FROM ${this.databaseName}.traders WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL) ORDER BY rank ASC LIMIT ${limit} OFFSET ${offset}`;
     return this.safeQuery<TraderRecord>(sql);
   }
 
   async getTrades(params: { marketId?: string; conditionId?: string; userAddress?: string; limit?: number; offset?: number; protocol?: string } = {}): Promise<TradeRecord[]> {
     const { marketId, conditionId, userAddress, limit = 100, offset = 0, protocol } = params;
-    let whereClause = `protocol = '${protocol || this.protocol}'`;
+    const p = protocol || this.protocol;
+    let whereClause = `(protocol = '${p}' OR protocol = '' OR protocol IS NULL)`;
     if (marketId) whereClause += ` AND market_id = '${marketId}'`;
     if (conditionId) whereClause += ` AND condition_id = '${conditionId}'`;
     if (userAddress) whereClause += ` AND user_address = '${userAddress}'`;
@@ -206,10 +217,10 @@ class PolymarketDatabaseService {
       const [marketsCount, activeMarketsCount, eventsCount, tradesCount, tradersCount, lastRun] = await Promise.all([
         this.getMarketCount('all', p),
         this.getMarketCount('active', p),
-        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.events WHERE protocol = '${p}'`),
-        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.trades WHERE protocol = '${p}'`),
-        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.traders WHERE protocol = '${p}'`),
-        this.safeQuery<{ completed_at: string }>(`SELECT completed_at FROM ${this.databaseName}.pipeline_runs WHERE protocol = '${p}' AND status = 'completed' ORDER BY completed_at DESC LIMIT 1`),
+        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.events WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL)`),
+        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.trades WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL)`),
+        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.traders WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL)`),
+        this.safeQuery<{ completed_at: string }>(`SELECT completed_at FROM ${this.databaseName}.pipeline_runs WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL) AND status = 'completed' ORDER BY completed_at DESC LIMIT 1`),
       ]);
 
       return {

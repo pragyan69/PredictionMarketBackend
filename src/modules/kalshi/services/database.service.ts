@@ -98,7 +98,8 @@ class KalshiDatabaseService {
   } = {}): Promise<KalshiMarketRecord[]> {
     const { status = 'active', limit = 50, offset = 0, search, eventId } = params;
 
-    let whereClause = `protocol = '${this.protocol}'`;
+    // Protocol filter with backward compatibility for empty/null protocol
+    let whereClause = `(protocol = '${this.protocol}' OR protocol = '' OR protocol IS NULL)`;
     if (status === 'active') {
       whereClause += ' AND active = 1 AND closed = 0';
     } else if (status === 'closed') {
@@ -117,7 +118,10 @@ class KalshiDatabaseService {
       ORDER BY volume DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
-    return this.safeQuery<KalshiMarketRecord>(sql);
+    console.log('[KalshiDbService] getMarkets SQL:', sql);
+    const results = await this.safeQuery<KalshiMarketRecord>(sql);
+    console.log('[KalshiDbService] getMarkets results:', results.length);
+    return results;
   }
 
   async getMarketById(id: string): Promise<KalshiMarketRecord | null> {

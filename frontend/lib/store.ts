@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 interface AuthState {
   isConnected: boolean;
@@ -7,9 +7,11 @@ interface AuthState {
   sessionToken: string | null;
   hasPolymarketCreds: boolean;
   hasKalshiCreds: boolean;
+  _hasHydrated: boolean;
   setConnected: (address: string, token: string) => void;
   setCredentials: (poly: boolean, kalshi: boolean) => void;
   disconnect: () => void;
+  setHasHydrated: (state: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -20,28 +22,39 @@ export const useAuthStore = create<AuthState>()(
       sessionToken: null,
       hasPolymarketCreds: false,
       hasKalshiCreds: false,
-      setConnected: (address, token) =>
+      _hasHydrated: false,
+      setConnected: (address, token) => {
+        console.log('[AuthStore] setConnected called:', { address, token: token ? 'exists' : 'none' });
         set({
           isConnected: true,
           walletAddress: address,
           sessionToken: token,
-        }),
+        });
+      },
       setCredentials: (poly, kalshi) =>
         set({
           hasPolymarketCreds: poly,
           hasKalshiCreds: kalshi,
         }),
-      disconnect: () =>
+      disconnect: () => {
+        console.log('[AuthStore] disconnect called');
         set({
           isConnected: false,
           walletAddress: null,
           sessionToken: null,
           hasPolymarketCreds: false,
           hasKalshiCreds: false,
-        }),
+        });
+      },
+      setHasHydrated: (state) => set({ _hasHydrated: state }),
     }),
     {
       name: 'auth-storage',
+      storage: createJSONStorage(() => localStorage),
+      onRehydrateStorage: () => (state) => {
+        console.log('[AuthStore] Rehydrated:', state?.isConnected ? 'connected' : 'not connected');
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

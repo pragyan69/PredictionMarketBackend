@@ -2,8 +2,10 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
+  "/markets/[platform]/[id]": "pages/markets/[platform]/[id].js",
+  "/portfolio": "pages/portfolio.js",
   "/": "pages/index.js",
+  "/settings": "pages/settings.js",
   "/markets": "pages/markets.js",
-  "/leaderboard": "pages/leaderboard.js",
-  "/markets/[platform]/[id]": "pages/markets/[platform]/[id].js"
+  "/leaderboard": "pages/leaderboard.js"
 }

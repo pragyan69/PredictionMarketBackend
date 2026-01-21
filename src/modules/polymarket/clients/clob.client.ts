@@ -69,49 +69,110 @@ export class CLOBAPIClient {
   async getOrderBook(tokenId: string) {
     await rateLimitManager.acquire(this.RATE_LIMIT_KEY);
 
-    // Try common variants (path + param name)
+    // Try common variants (path + param name) - paths must start with /
     const attempts: Array<() => Promise<any>> = [
-      () => this.client.get("book", { params: { token_id: tokenId } }),
-      () => this.client.get("book", { params: { asset_id: tokenId } }),
-      () => this.client.get("data/book", { params: { token_id: tokenId } }),
-      () => this.client.get("data/book", { params: { asset_id: tokenId } }),
+      () => this.client.get("/book", { params: { token_id: tokenId } }),
+      () => this.client.get("/book", { params: { asset_id: tokenId } }),
+      () => this.client.get("/data/book", { params: { token_id: tokenId } }),
+      () => this.client.get("/data/book", { params: { asset_id: tokenId } }),
     ];
 
     return this.tryAttempts(attempts, "getOrderBook");
   }
 
   /**
-   * ✅ Public Price (best bid/ask or last) – depends on API version
+   * ✅ Public Price (best bid/ask or last)
+   * API: GET https://clob.polymarket.com/price?token_id=<token_id>&side=<BUY|SELL>
+   * @param tokenId - The token ID
+   * @param side - "BUY" or "SELL" (BUY = best ask price, SELL = best bid price)
    */
-  async getPrice(tokenId: string) {
+  async getPrice(tokenId: string, side: "BUY" | "SELL" = "BUY") {
     await rateLimitManager.acquire(this.RATE_LIMIT_KEY);
 
-    const attempts: Array<() => Promise<any>> = [
-      () => this.client.get("price", { params: { token_id: tokenId } }),
-      () => this.client.get("price", { params: { asset_id: tokenId } }),
-      () => this.client.get("data/price", { params: { token_id: tokenId } }),
-      () => this.client.get("data/price", { params: { asset_id: tokenId } }),
-    ];
-
-    return this.tryAttempts(attempts, "getPrice");
+    // API requires both token_id and side parameters
+    const response = await this.client.get("/price", {
+      params: { token_id: tokenId, side },
+    });
+    return response.data;
   }
 
   /**
-   * ✅ Public Prices for many tokens
+   * ✅ Get both BUY and SELL prices for a token (to calculate mid price)
    */
-  async getPrices(tokenIds: string[]) {
+  async getPriceBothSides(tokenId: string): Promise<{ buy: number; sell: number; mid: number }> {
+    await rateLimitManager.acquire(this.RATE_LIMIT_KEY);
+
+    try {
+      const [buyRes, sellRes] = await Promise.all([
+        this.client.get("/price", { params: { token_id: tokenId, side: "BUY" } }),
+        this.client.get("/price", { params: { token_id: tokenId, side: "SELL" } }),
+      ]);
+
+      const buyPrice = parseFloat(buyRes.data?.price || "0");
+      const sellPrice = parseFloat(sellRes.data?.price || "0");
+      const midPrice = (buyPrice + sellPrice) / 2;
+
+      return { buy: buyPrice, sell: sellPrice, mid: midPrice };
+    } catch (error) {
+      console.warn(`⚠️ Failed to get prices for token ${tokenId}:`, error);
+      return { buy: 0, sell: 0, mid: 0 };
+    }
+  }
+
+  /**
+   * ✅ Public Prices for many tokens (batch endpoint)
+   * API: GET https://clob.polymarket.com/prices?token_ids=<id1>,<id2>,...&side=<BUY|SELL>
+   * @param tokenIds - Array of token IDs
+   * @param side - "BUY" or "SELL"
+   */
+  async getPrices(tokenIds: string[], side: "BUY" | "SELL" = "BUY") {
     await rateLimitManager.acquire(this.RATE_LIMIT_KEY);
 
     const joined = tokenIds.join(",");
 
-    const attempts: Array<() => Promise<any>> = [
-      () => this.client.get("prices", { params: { token_ids: joined } }),
-      () => this.client.get("prices", { params: { asset_ids: joined } }),
-      () => this.client.get("data/prices", { params: { token_ids: joined } }),
-      () => this.client.get("data/prices", { params: { asset_ids: joined } }),
-    ];
+    // API requires both token_ids and side parameters
+    const response = await this.client.get("/prices", {
+      params: { token_ids: joined, side },
+    });
+    return response.data;
+  }
 
-    return this.tryAttempts(attempts, "getPrices");
+  /**
+   * ✅ Get prices for multiple tokens with both sides (for mid price calculation)
+   */
+  async getPricesBothSides(tokenIds: string[]): Promise<Map<string, number>> {
+    const priceMap = new Map<string, number>();
+
+    if (tokenIds.length === 0) return priceMap;
+
+    try {
+      const joined = tokenIds.join(",");
+
+      // Fetch both buy and sell prices
+      const [buyRes, sellRes] = await Promise.all([
+        this.client.get("/prices", { params: { token_ids: joined, side: "BUY" } }),
+        this.client.get("/prices", { params: { token_ids: joined, side: "SELL" } }),
+      ]);
+
+      // Parse responses - format is typically { "token_id": "price", ... }
+      const buyPrices = buyRes.data || {};
+      const sellPrices = sellRes.data || {};
+
+      for (const tokenId of tokenIds) {
+        const buyPrice = parseFloat(buyPrices[tokenId] || "0");
+        const sellPrice = parseFloat(sellPrices[tokenId] || "0");
+
+        // Calculate mid price
+        if (buyPrice > 0 || sellPrice > 0) {
+          const midPrice = (buyPrice + sellPrice) / 2;
+          priceMap.set(tokenId, midPrice);
+        }
+      }
+    } catch (error) {
+      console.warn(`⚠️ Failed to get batch prices:`, error);
+    }
+
+    return priceMap;
   }
 
   /**
@@ -144,11 +205,11 @@ export class CLOBAPIClient {
       q.asset_id = params.tokenId;
     }
 
-    // Try common public endpoints
+    // Try common public endpoints - paths must start with /
     const attempts: Array<() => Promise<any>> = [
-      () => this.client.get("data/market-trades", { params: q }),
-      () => this.client.get("data/trades", { params: q }), // some versions expose public market trades here
-      () => this.client.get("trades", { params: q }),
+      () => this.client.get("/data/market-trades", { params: q }),
+      () => this.client.get("/data/trades", { params: q }), // some versions expose public market trades here
+      () => this.client.get("/trades", { params: q }),
     ];
 
     return this.tryAttempts(attempts, "getPublicTrades");

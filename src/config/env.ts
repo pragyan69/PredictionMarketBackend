@@ -6,7 +6,7 @@ dotenv.config();
 
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '3000', 10),
+  port: parseInt(process.env.PORT || '8081', 10),
   
   clickhouse: {
     host: process.env.CLICKHOUSE_HOST || 'localhost',

@@ -8,6 +8,8 @@ export class PriceFetcher {
 
   /**
    * Fetch prices for multiple tokens in batches
+   * Uses the CLOB API which requires both token_id and side parameters
+   * Fetches both BUY and SELL sides to calculate mid price
    */
   async fetchPrices(
     tokenIds: string[],
@@ -26,11 +28,14 @@ export class PriceFetcher {
       const batch = uniqueTokenIds.slice(i, i + this.BATCH_SIZE);
 
       try {
-        const prices = await clobClient.getPrices(batch);
+        // Use the new getPricesBothSides method that fetches both BUY and SELL
+        const batchPrices = await clobClient.getPricesBothSides(batch);
 
-        // Parse response - could be object or array
-        if (prices) {
-          this.parsePricesResponse(prices, batch, priceMap);
+        // Merge batch prices into main map
+        for (const [tokenId, price] of batchPrices) {
+          if (price > 0) {
+            priceMap.set(tokenId, price);
+          }
         }
 
         processed += batch.length;
@@ -45,7 +50,7 @@ export class PriceFetcher {
         for (const tokenId of batch) {
           try {
             const price = await this.fetchSinglePrice(tokenId);
-            if (price !== null) {
+            if (price !== null && price > 0) {
               priceMap.set(tokenId, price);
             }
           } catch (e) {
@@ -58,58 +63,39 @@ export class PriceFetcher {
         }
       }
 
-      // Add small delay between batches
+      // Add small delay between batches to respect rate limits
       if (i + this.BATCH_SIZE < uniqueTokenIds.length) {
-        await this.delay(100);
+        await this.delay(200);
       }
     }
 
-    console.log(`✅ Fetched prices for ${priceMap.size} tokens`);
+    console.log(`✅ Fetched prices for ${priceMap.size}/${uniqueTokenIds.length} tokens`);
     return priceMap;
   }
 
   /**
-   * Fetch price for a single token
+   * Fetch price for a single token (mid price from both sides)
    */
   async fetchSinglePrice(tokenId: string): Promise<number | null> {
     try {
-      const priceData = await clobClient.getPrice(tokenId);
-      return this.extractPrice(priceData);
+      const prices = await clobClient.getPriceBothSides(tokenId);
+      return prices.mid > 0 ? prices.mid : null;
     } catch (error) {
       return null;
     }
   }
 
   /**
-   * Parse batch prices response
+   * Fetch price for a single token with specific side
+   * @param tokenId - The token ID
+   * @param side - "BUY" (best ask) or "SELL" (best bid)
    */
-  private parsePricesResponse(
-    response: any,
-    requestedTokenIds: string[],
-    priceMap: Map<string, number>
-  ): void {
-    if (Array.isArray(response)) {
-      // Response is array of price objects
-      for (const item of response) {
-        const tokenId = item.token_id || item.tokenId || item.asset_id || item.assetId;
-        const price = this.extractPrice(item);
-        if (tokenId && price !== null) {
-          priceMap.set(tokenId, price);
-        }
-      }
-    } else if (typeof response === 'object') {
-      // Response is object with tokenId keys or nested structure
-      for (const tokenId of requestedTokenIds) {
-        const priceData = response[tokenId];
-        if (priceData !== undefined) {
-          const price = typeof priceData === 'number'
-            ? priceData
-            : this.extractPrice(priceData);
-          if (price !== null) {
-            priceMap.set(tokenId, price);
-          }
-        }
-      }
+  async fetchSinglePriceWithSide(tokenId: string, side: "BUY" | "SELL"): Promise<number | null> {
+    try {
+      const priceData = await clobClient.getPrice(tokenId, side);
+      return this.extractPrice(priceData);
+    } catch (error) {
+      return null;
     }
   }
 

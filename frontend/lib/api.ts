@@ -14,13 +14,34 @@ class ApiClient {
       },
     });
 
+    // Initialize token from localStorage (client-side only)
+    if (typeof window !== 'undefined') {
+      this.token = localStorage.getItem('session_token');
+      console.log('[ApiClient] Initialized with token:', this.token ? 'exists' : 'none');
+    }
+
     // Add auth header to requests
     this.client.interceptors.request.use((config) => {
-      if (this.token) {
-        config.headers.Authorization = `Bearer ${this.token}`;
+      // Always try to get fresh token
+      const currentToken = this.getToken();
+      if (currentToken) {
+        config.headers.Authorization = `Bearer ${currentToken}`;
       }
       return config;
     });
+
+    // Log responses for debugging
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        console.error('[ApiClient] Request failed:', {
+          url: error.config?.url,
+          status: error.response?.status,
+          data: error.response?.data,
+        });
+        return Promise.reject(error);
+      }
+    );
   }
 
   setToken(token: string | null) {

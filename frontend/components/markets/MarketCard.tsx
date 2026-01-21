@@ -27,7 +27,8 @@ export default function MarketCard({
   };
 
   const formatPrice = (price?: number) => {
-    if (price === undefined || price === null) return '-';
+    if (price === undefined || price === null || isNaN(price)) return '-';
+    // Price is between 0 and 1, convert to cents
     return `${(price * 100).toFixed(0)}¢`;
   };
 

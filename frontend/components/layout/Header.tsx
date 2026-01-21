@@ -2,31 +2,51 @@ import Link from 'next/link';
 import { useAccount, useConnect, useDisconnect, useSignMessage } from 'wagmi';
 import { useAuthStore } from '../../lib/store';
 import { api } from '../../lib/api';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function Header() {
   const { address, isConnected: walletConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect: walletDisconnect } = useDisconnect();
   const { signMessage, isPending: signPending } = useSignMessage();
-  const { isConnected, walletAddress, disconnect, setConnected, setCredentials, hasPolymarketCreds, hasKalshiCreds } = useAuthStore();
+  const { isConnected, walletAddress, disconnect, setConnected, setCredentials, hasPolymarketCreds, hasKalshiCreds, _hasHydrated } = useAuthStore();
   const [loading, setLoading] = useState(false);
 
+  // Fix hydration mismatch - only render wallet state after mount AND hydration
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Log state for debugging
+  useEffect(() => {
+    console.log('[Header] State:', { mounted, _hasHydrated, isConnected, walletConnected, walletAddress: walletAddress?.slice(0, 10) });
+  }, [mounted, _hasHydrated, isConnected, walletConnected, walletAddress]);
+
   const handleConnect = async () => {
+    console.log('[Header] handleConnect called, walletConnected:', walletConnected, 'address:', address);
+
     if (!walletConnected) {
       const connector = connectors[0];
+      console.log('[Header] Connecting wallet with connector:', connector?.name);
       if (connector) {
         connect({ connector });
       }
       return;
     }
 
-    if (!address) return;
+    if (!address) {
+      console.log('[Header] No address available');
+      return;
+    }
 
     setLoading(true);
     try {
       // Get nonce from backend
+      console.log('[Header] Getting nonce for address:', address);
       const connectRes = await api.connect(address);
+      console.log('[Header] Connect response:', connectRes);
+
       if (!connectRes.success) {
         alert('Failed to connect: ' + connectRes.error);
         setLoading(false);
@@ -34,34 +54,41 @@ export default function Header() {
       }
 
       const { nonce, message } = connectRes.data;
+      console.log('[Header] Got nonce, requesting signature...');
 
       // Sign the message
       signMessage(
         { message },
         {
           onSuccess: async (signature) => {
+            console.log('[Header] Signature obtained, verifying...');
             // Verify with backend
             const verifyRes = await api.verify(address, signature, nonce);
+            console.log('[Header] Verify response:', verifyRes);
+
             if (verifyRes.success) {
+              console.log('[Header] Verification successful, setting connected state');
               setConnected(address, verifyRes.data.session_token);
               setCredentials(
-                verifyRes.data.has_polymarket_creds,
-                verifyRes.data.has_kalshi_creds
+                verifyRes.data.has_polymarket_creds || false,
+                verifyRes.data.has_kalshi_creds || false
               );
+              console.log('[Header] State updated successfully');
             } else {
+              console.error('[Header] Verification failed:', verifyRes.error);
               alert('Verification failed: ' + verifyRes.error);
             }
             setLoading(false);
           },
           onError: (error) => {
-            console.error('Signing error:', error);
+            console.error('[Header] Signing error:', error);
             alert('Signing failed: ' + error.message);
             setLoading(false);
           },
         }
       );
     } catch (error: any) {
-      console.error('Connection error:', error);
+      console.error('[Header] Connection error:', error);
       alert('Connection failed: ' + error.message);
       setLoading(false);
     }
@@ -122,7 +149,12 @@ export default function Header() {
               </div>
             )}
 
-            {isConnected && walletAddress ? (
+            {/* Only render wallet state after mount AND hydration to prevent mismatch */}
+            {!mounted || !_hasHydrated ? (
+              <button className="btn-primary" disabled>
+                Loading...
+              </button>
+            ) : isConnected && walletAddress ? (
               <div className="flex items-center space-x-3">
                 <span className="text-sm text-gray-600">
                   {shortenAddress(walletAddress)}
