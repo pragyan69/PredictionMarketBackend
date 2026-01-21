@@ -18,7 +18,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV NODE_ENV=development
-EXPOSE 3000
+EXPOSE 8081
 
 CMD ["npm", "run", "dev"]
 
@@ -48,8 +48,8 @@ COPY --from=builder --chown=mimiq:nodejs /app/package.json ./package.json
 
 USER mimiq
 
-EXPOSE 3000
+EXPOSE 8081
 
-ENV PORT=3000
+ENV PORT=8081
 
 CMD ["node", "dist/index.js"]
