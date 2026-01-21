@@ -161,7 +161,10 @@ export class AggregationPipeline {
       // Phase 2: Fetch markets and filter to active only
       await this.fetchMarketsAndFilterActive();
 
-      // 💾 Store markets immediately
+      // Phase 2.5: Fetch prices for active markets
+      await this.fetchPricesForActiveMarkets();
+
+      // 💾 Store markets immediately (now with prices!)
       await this.storeMarketsIncremental();
 
       // 💾 Store events (needs markets for aggregation)
@@ -244,6 +247,41 @@ export class AggregationPipeline {
     }
     console.log('═══════════════════════════════════════════════════');
     console.log(`✅ Phase 2 complete: ${this.activeMarkets.length} active markets fetched`);
+  }
+
+  /**
+   * Phase 2.5: Fetch prices for active markets
+   */
+  private async fetchPricesForActiveMarkets(): Promise<void> {
+    console.log('📥 Phase 2.5: Fetching prices for active markets...');
+    console.log('═══════════════════════════════════════════════════');
+
+    // Collect all token IDs from active markets
+    const tokenIds: string[] = [];
+    for (const market of this.activeMarkets) {
+      const ids = getClobTokenIds(market);
+      tokenIds.push(...ids);
+    }
+
+    console.log(`📊 Found ${tokenIds.length} tokens to fetch prices for`);
+
+    if (tokenIds.length === 0) {
+      console.log('⚠️ No token IDs found, skipping price fetch');
+      return;
+    }
+
+    try {
+      this.priceMap = await priceFetcher.fetchPrices(
+        tokenIds,
+        (count) => { this.status.progress.pricesFetched = count; }
+      );
+      console.log(`✅ Phase 2.5 complete: ${this.priceMap.size} prices fetched`);
+    } catch (error) {
+      console.warn('⚠️ Failed to fetch prices, continuing with empty price map:', error);
+      // Continue without prices rather than failing the whole pipeline
+    }
+
+    console.log('═══════════════════════════════════════════════════');
   }
 
   /**
@@ -354,7 +392,7 @@ export class AggregationPipeline {
         const batchSize = 500;
         for (let i = 0; i < enrichedMarkets.length; i += batchSize) {
           const batch = enrichedMarkets.slice(i, i + batchSize);
-          await polymarketDb.insert('polymarket_markets', batch);
+          await polymarketDb.insert('markets', batch);
         }
         this.status.progress.marketsStored = enrichedMarkets.length;
         console.log(`✅ Stored ${enrichedMarkets.length} markets`);
@@ -375,7 +413,7 @@ export class AggregationPipeline {
       const enrichedEvents = eventTransformer.transform(this.events, this.activeMarkets);
 
       if (enrichedEvents.length > 0) {
-        await polymarketDb.insert('polymarket_events', enrichedEvents);
+        await polymarketDb.insert('events', enrichedEvents);
         this.status.progress.eventsStored = enrichedEvents.length;
         console.log(`✅ Stored ${enrichedEvents.length} events`);
       }
@@ -398,7 +436,7 @@ export class AggregationPipeline {
         const batchSize = 500;
         for (let i = 0; i < newTrades.length; i += batchSize) {
           const batch = newTrades.slice(i, i + batchSize);
-          await polymarketDb.insert('polymarket_trades', batch);
+          await polymarketDb.insert('trades', batch);
         }
         this.status.progress.tradesStored += newTrades.length;
         console.log(`  💾 Stored ${this.status.progress.tradesStored} trades total`);
@@ -419,7 +457,7 @@ export class AggregationPipeline {
       const enrichedTraders = traderTransformer.transform(this.traders);
 
       if (enrichedTraders.length > 0) {
-        await polymarketDb.insert('polymarket_traders', enrichedTraders);
+        await polymarketDb.insert('traders', enrichedTraders);
         this.status.progress.tradersStored = enrichedTraders.length;
         console.log(`✅ Stored ${enrichedTraders.length} traders`);
       }
@@ -434,7 +472,7 @@ export class AggregationPipeline {
 
   private async recordPipelineStart(): Promise<void> {
     try {
-      await polymarketDb.insert('polymarket_pipeline_runs', [{
+      await polymarketDb.insert('pipeline_runs', [{
         id: this.status.runId,
         status: 'running',
         started_at: this.status.startedAt,
@@ -453,7 +491,7 @@ export class AggregationPipeline {
 
   private async recordPipelineEnd(): Promise<void> {
     try {
-      await polymarketDb.insert('polymarket_pipeline_runs', [{
+      await polymarketDb.insert('pipeline_runs', [{
         id: this.status.runId,
         status: this.status.currentPhase === PipelinePhase.COMPLETED ? 'completed' : 'failed',
         started_at: this.status.startedAt,

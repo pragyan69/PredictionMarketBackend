@@ -22,12 +22,38 @@ export const env = {
     dataApiUrl: process.env.POLYMARKET_DATA_API_URL || 'https://data-api.polymarket.com',
     clobWsUrl: process.env.POLYMARKET_CLOB_WS_URL || 'wss://ws-subscriptions-clob.polymarket.com/ws',
     rtdsWsUrl: process.env.POLYMARKET_RTDS_WS_URL || 'wss://ws-live-data.polymarket.com',
+    // Trading contracts (Polygon Mainnet)
+    chainId: parseInt(process.env.POLYMARKET_CHAIN_ID || '137', 10),
+    usdcAddress: process.env.POLYMARKET_USDC || '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+    ctfAddress: process.env.POLYMARKET_CTF || '0x4d97dcd97ec945f40cf65f87097ace5ea0476045',
+    ctfExchangeAddress: process.env.POLYMARKET_CTF_EXCHANGE || '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E',
+    negRiskCtfExchangeAddress: process.env.POLYMARKET_NEG_RISK_CTF_EXCHANGE || '0xC5d563A36AE78145C45a50134d48A1215220f80a',
+    negRiskAdapterAddress: process.env.POLYMARKET_NEG_RISK_ADAPTER || '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296',
   },
-  
+
   kalshi: {
     apiUrl: process.env.KALSHI_API_URL || 'https://api.elections.kalshi.com/trade-api/v2',
     wsUrl: process.env.KALSHI_WS_URL || 'wss://api.elections.kalshi.com',
     apiKey: process.env.KALSHI_API_KEY || '',
+  },
+
+  // Authentication & Security
+  auth: {
+    jwtSecret: process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production',
+    jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
+    encryptionKey: process.env.ENCRYPTION_KEY || 'your-32-byte-encryption-key-here',
+    sessionExpiryHours: parseInt(process.env.SESSION_EXPIRY_HOURS || '24', 10),
+  },
+
+  // MetaMask SDK Configuration (for frontend reference)
+  metamask: {
+    // Infura Project ID for MetaMask SDK connection
+    infuraProjectId: process.env.METAMASK_INFURA_PROJECT_ID || '',
+    // Chain IDs supported for wallet connection
+    supportedChainIds: (process.env.METAMASK_SUPPORTED_CHAINS || '1,137').split(',').map(Number),
+    // DApp metadata for MetaMask SDK
+    dappName: process.env.DAPP_NAME || 'Mimiq Trading Platform',
+    dappUrl: process.env.DAPP_URL || 'https://mimiq.trade',
   },
 
   rateLimit: {

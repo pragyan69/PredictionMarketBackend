@@ -1,11 +1,15 @@
 import { createApp } from './app';
 import { env } from './config/env';
 import { clickhouse } from './config/clickhouse';
+import { initTradingTables } from './modules/trading/database.init';
 import dns from "dns";
 dns.setDefaultResultOrder("ipv4first");
 async function bootstrap() {
   try {
     await clickhouse.connect();
+
+    // Initialize trading tables
+    await initTradingTables();
 
     const app = createApp();
 

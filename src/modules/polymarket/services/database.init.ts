@@ -1,34 +1,40 @@
 // src/modules/polymarket/services/database.init.ts
+// Uses unified prediction_market database with protocol field for multi-protocol support
 
 import { createClient, ClickHouseClient } from '@clickhouse/client';
 import { env } from '../../../config/env';
 
-const DATABASE_NAME = 'polymarket_aggregation';
+// Unified database name for all prediction markets (Polymarket, Kalshi, etc.)
+const DATABASE_NAME = 'prediction_market';
+const PROTOCOL = 'polymarket';
 
 const SCHEMA_STATEMENTS = [
   // Create database
   `CREATE DATABASE IF NOT EXISTS ${DATABASE_NAME}`,
 
-  // Events table
-  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.polymarket_events (
+  // Unified Events table - stores events from all protocols
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.events (
     id String,
     slug String,
     title String,
     description String,
+    category String,
+    series_ticker String,
     start_date DateTime64(3),
-    end_date DateTime64(3),
+    end_date Nullable(DateTime64(3)),
     created_at DateTime64(3),
     market_count UInt32,
     total_volume Float64,
     total_liquidity Float64,
     active_markets UInt32,
     closed_markets UInt32,
+    protocol LowCardinality(String),
     fetched_at DateTime64(3) DEFAULT now64(3)
   ) ENGINE = ReplacingMergeTree(fetched_at)
-  ORDER BY (id)`,
+  ORDER BY (protocol, id)`,
 
-  // Markets table
-  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.polymarket_markets (
+  // Unified Markets table - stores markets from all protocols
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.markets (
     id String,
     event_id String,
     slug String,
@@ -55,12 +61,13 @@ const SCHEMA_STATEMENTS = [
     start_date DateTime64(3),
     end_date DateTime64(3),
     created_at DateTime64(3),
+    protocol LowCardinality(String),
     fetched_at DateTime64(3) DEFAULT now64(3)
   ) ENGINE = ReplacingMergeTree(fetched_at)
-  ORDER BY (id)`,
+  ORDER BY (protocol, id)`,
 
-  // Traders table
-  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.polymarket_traders (
+  // Unified Traders table
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.traders (
     user_address String,
     rank UInt32,
     total_pnl Float64,
@@ -68,12 +75,13 @@ const SCHEMA_STATEMENTS = [
     markets_traded UInt32,
     win_rate Float64,
     avg_position_size Float64,
+    protocol LowCardinality(String),
     fetched_at DateTime64(3) DEFAULT now64(3)
   ) ENGINE = ReplacingMergeTree(fetched_at)
-  ORDER BY (user_address)`,
+  ORDER BY (protocol, user_address)`,
 
-  // Trader positions table
-  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.polymarket_trader_positions (
+  // Unified Trader positions table
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.trader_positions (
     user_address String,
     market_id String,
     asset_id String,
@@ -82,12 +90,13 @@ const SCHEMA_STATEMENTS = [
     current_price Float64,
     pnl Float64,
     position_updated_at DateTime64(3),
+    protocol LowCardinality(String),
     fetched_at DateTime64(3) DEFAULT now64(3)
   ) ENGINE = ReplacingMergeTree(fetched_at)
-  ORDER BY (user_address, market_id, asset_id)`,
+  ORDER BY (protocol, user_address, market_id, asset_id)`,
 
-  // Trades table - stores all trade transactions
-  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.polymarket_trades (
+  // Unified Trades table - stores all trade transactions
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.trades (
     id String,
     market_id String,
     condition_id String,
@@ -103,13 +112,15 @@ const SCHEMA_STATEMENTS = [
     title String,
     slug String,
     event_slug String,
+    protocol LowCardinality(String),
     fetched_at DateTime64(3) DEFAULT now64(3)
   ) ENGINE = ReplacingMergeTree(fetched_at)
-  ORDER BY (condition_id, timestamp, transaction_hash)`,
+  ORDER BY (protocol, condition_id, timestamp, id)`,
 
-  // Pipeline runs table
-  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.polymarket_pipeline_runs (
+  // Unified Pipeline runs table
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.pipeline_runs (
     id String,
+    protocol LowCardinality(String),
     status String,
     started_at DateTime64(3),
     completed_at Nullable(DateTime64(3)),
@@ -120,7 +131,42 @@ const SCHEMA_STATEMENTS = [
     positions_fetched UInt32 DEFAULT 0,
     error_message String DEFAULT ''
   ) ENGINE = MergeTree()
-  ORDER BY (started_at, id)`,
+  ORDER BY (protocol, started_at, id)`,
+
+  // Orderbook snapshots table - for real-time orderbook data
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.orderbook_snapshots (
+    market_id String,
+    ticker String,
+    best_bid Float64,
+    best_ask Float64,
+    mid_price Float64,
+    spread Float64,
+    bid_depth Float64,
+    ask_depth Float64,
+    bid_levels Array(Tuple(Float64, Float64)),
+    ask_levels Array(Tuple(Float64, Float64)),
+    protocol LowCardinality(String),
+    timestamp DateTime64(3),
+    fetched_at DateTime64(3) DEFAULT now64(3)
+  ) ENGINE = ReplacingMergeTree(fetched_at)
+  ORDER BY (protocol, market_id, timestamp)`,
+
+  // Candlesticks table - for historical OHLCV data
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.candlesticks (
+    market_id String,
+    ticker String,
+    period_interval UInt16,
+    end_period_ts UInt64,
+    open_price Float64,
+    high_price Float64,
+    low_price Float64,
+    close_price Float64,
+    volume Float64,
+    open_interest Float64,
+    protocol LowCardinality(String),
+    fetched_at DateTime64(3) DEFAULT now64(3)
+  ) ENGINE = ReplacingMergeTree(fetched_at)
+  ORDER BY (protocol, market_id, period_interval, end_period_ts)`,
 ];
 
 class PolymarketDatabaseInit {
@@ -128,10 +174,17 @@ class PolymarketDatabaseInit {
   private initialized = false;
 
   /**
-   * Get the database name used for polymarket aggregation
+   * Get the database name used for prediction market aggregation
    */
   getDatabaseName(): string {
     return DATABASE_NAME;
+  }
+
+  /**
+   * Get the protocol identifier for this data source
+   */
+  getProtocol(): string {
+    return PROTOCOL;
   }
 
   /**
@@ -139,11 +192,11 @@ class PolymarketDatabaseInit {
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
-      console.log('✅ Polymarket database already initialized');
+      console.log('✅ Prediction Market database already initialized (Polymarket)');
       return;
     }
 
-    console.log('🔧 Initializing Polymarket aggregation database...');
+    console.log('🔧 Initializing Prediction Market database (Polymarket protocol)...');
 
     try {
       // Create client without database (to create database first)
@@ -163,10 +216,10 @@ class PolymarketDatabaseInit {
       }
 
       this.initialized = true;
-      console.log(`✅ Polymarket database "${DATABASE_NAME}" initialized successfully`);
+      console.log(`✅ Prediction Market database "${DATABASE_NAME}" initialized (Polymarket)`);
 
     } catch (error) {
-      console.error('❌ Failed to initialize Polymarket database:', error);
+      console.error('❌ Failed to initialize Prediction Market database:', error);
       throw error;
     }
   }
@@ -222,7 +275,7 @@ class PolymarketDatabaseInit {
   }
 
   /**
-   * Insert data into a table
+   * Insert data into a table (automatically adds protocol field)
    */
   async insert(table: string, data: any[]): Promise<void> {
     if (!data || data.length === 0) return;
@@ -235,12 +288,18 @@ class PolymarketDatabaseInit {
       throw new Error('ClickHouse client not initialized');
     }
 
-    // Process data to convert Date objects to ClickHouse format
+    // Process data to convert Date objects to ClickHouse format and add protocol
     const processedData = this.processDataForInsert(data);
+
+    // Add protocol field to each record
+    const dataWithProtocol = processedData.map(row => ({
+      ...row,
+      protocol: PROTOCOL,
+    }));
 
     await this.client.insert({
       table: `${DATABASE_NAME}.${table}`,
-      values: processedData,
+      values: dataWithProtocol,
       format: 'JSONEachRow',
     });
   }
