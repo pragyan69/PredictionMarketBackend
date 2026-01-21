@@ -27,25 +27,10 @@
       "static/chunks/main.js",
       "static/chunks/pages/_error.js"
     ],
-    "/leaderboard": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/leaderboard.js"
-    ],
-    "/markets": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/markets.js"
-    ],
     "/markets/[platform]/[id]": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
       "static/chunks/pages/markets/[platform]/[id].js"
-    ],
-    "/portfolio": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/portfolio.js"
     ],
     "/settings": [
       "static/chunks/webpack.js",

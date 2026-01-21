@@ -147,8 +147,11 @@ class PolymarketDatabaseService {
 
   async getMarketById(id: string, protocol?: string): Promise<MarketRecord | null> {
     const p = protocol || this.protocol;
-    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL) AND id = '${id}' LIMIT 1`;
+    // Search by id, condition_id, OR slug for flexibility
+    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE (protocol = '${p}' OR protocol = '' OR protocol IS NULL) AND (id = '${id}' OR condition_id = '${id}' OR slug = '${id}') LIMIT 1`;
+    console.log('[PolymarketDbService] getMarketById SQL:', sql);
     const results = await this.safeQuery<MarketRecord>(sql);
+    console.log('[PolymarketDbService] getMarketById result:', results.length > 0 ? results[0].question : 'not found');
     return results.length > 0 ? results[0] : null;
   }
 

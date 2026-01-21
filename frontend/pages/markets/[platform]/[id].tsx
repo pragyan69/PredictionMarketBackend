@@ -29,51 +29,85 @@ export default function MarketDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        // Fetch market details based on platform
+        console.log('[MarketDetail] Fetching market:', { platform, id });
+
+        let found: any = null;
+
+        // Try to fetch by ID first, then fallback to searching
         if (platform === 'polymarket') {
-          const res = await api.getMarkets({ limit: 100 });
-          if (res.success && res.data) {
-            const found = res.data.find((m: any) =>
-              m.condition_id === id || m.id === id
-            );
-            if (found) {
-              setMarket({
-                id: found.condition_id || found.id,
-                title: found.question || found.title,
-                description: found.description,
-                volume: found.volume || found.volume_24h,
-                yesPrice: found.yes_price || found.outcome_prices?.[0],
-                noPrice: found.no_price || found.outcome_prices?.[1],
-                endDate: found.end_date_iso || found.end_date,
-                outcomes: found.outcomes || ['Yes', 'No'],
-              });
-            } else {
-              setError('Market not found');
+          // Try direct fetch by ID
+          const directRes = await api.getMarketById(id as string);
+          console.log('[MarketDetail] Polymarket direct fetch:', directRes);
+
+          if (directRes.success && directRes.data) {
+            found = directRes.data;
+          } else {
+            // Fallback: search in list
+            const listRes = await api.getMarkets({ limit: 200, status: 'all' });
+            if (listRes.success && listRes.data) {
+              found = listRes.data.find((m: any) =>
+                m.condition_id === id || m.id === id || m.slug === id
+              );
             }
           }
+
+          if (found) {
+            const yesPrice = found.outcome_prices?.[0] || found.mid_price || found.best_ask || 0;
+            const noPrice = found.outcome_prices?.[1] || (1 - yesPrice) || 0;
+
+            setMarket({
+              id: found.condition_id || found.id,
+              title: found.question || found.title || found.slug,
+              description: found.description,
+              volume: found.volume || found.volume_24h || 0,
+              yesPrice: yesPrice,
+              noPrice: noPrice,
+              endDate: found.end_date,
+              outcomes: found.outcomes || ['Yes', 'No'],
+            });
+          } else {
+            setError('Market not found');
+          }
         } else if (platform === 'kalshi') {
-          const res = await api.getKalshiMarkets({ limit: 100 });
-          if (res.success && res.data) {
-            const found = res.data.find((m: any) =>
-              m.ticker === id || m.id === id
-            );
-            if (found) {
-              setMarket({
-                id: found.ticker || found.id,
-                title: found.title || found.subtitle,
-                description: found.rules_primary,
-                volume: found.volume || found.dollar_volume,
-                yesPrice: found.yes_price ? found.yes_price / 100 : found.last_price / 100,
-                noPrice: found.no_price ? found.no_price / 100 : (100 - found.last_price) / 100,
-                endDate: found.close_time || found.expiration_time,
-                outcomes: ['Yes', 'No'],
-              });
-            } else {
-              setError('Market not found');
+          // Try direct fetch by ID (which is the ticker for Kalshi)
+          const directRes = await api.getKalshiMarketById(id as string);
+          console.log('[MarketDetail] Kalshi direct fetch:', directRes);
+
+          if (directRes.success && directRes.data) {
+            found = directRes.data;
+          } else {
+            // Fallback: search in list
+            const listRes = await api.getKalshiMarkets({ limit: 200, status: 'all' });
+            if (listRes.success && listRes.data) {
+              found = listRes.data.find((m: any) =>
+                m.id === id || m.slug === id || m.condition_id === id
+              );
             }
+          }
+
+          if (found) {
+            console.log('[MarketDetail] Found Kalshi market:', found);
+
+            // Use outcome_prices array or best_bid/best_ask for prices
+            const yesPrice = found.outcome_prices?.[0] || found.mid_price || found.best_ask || 0;
+            const noPrice = found.outcome_prices?.[1] || (1 - yesPrice) || 0;
+
+            setMarket({
+              id: found.id || found.slug,
+              title: found.question || found.title || found.slug,
+              description: found.description,
+              volume: found.volume || 0,
+              yesPrice: yesPrice,
+              noPrice: noPrice,
+              endDate: found.end_date,
+              outcomes: found.outcomes || ['Yes', 'No'],
+            });
+          } else {
+            setError('Market not found');
           }
         }
       } catch (err: any) {
+        console.error('[MarketDetail] Error:', err);
         setError(err.message || 'Failed to fetch market');
       } finally {
         setLoading(false);
@@ -84,10 +118,15 @@ export default function MarketDetailPage() {
   }, [platform, id]);
 
   const formatVolume = (vol?: number) => {
-    if (!vol) return '$0';
+    if (!vol || isNaN(vol)) return '$0';
     if (vol >= 1_000_000) return `$${(vol / 1_000_000).toFixed(2)}M`;
     if (vol >= 1_000) return `$${(vol / 1_000).toFixed(2)}K`;
     return `$${vol.toFixed(2)}`;
+  };
+
+  const formatPrice = (price?: number) => {
+    if (price === undefined || price === null || isNaN(price) || price === 0) return '-';
+    return `${(price * 100).toFixed(0)}¢`;
   };
 
   if (loading) {
@@ -160,13 +199,13 @@ export default function MarketDetailPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div className="bg-green-50 p-4 rounded-lg text-center">
                 <div className="text-2xl font-bold text-green-600">
-                  {market.yesPrice ? `${(market.yesPrice * 100).toFixed(0)}¢` : '-'}
+                  {formatPrice(market.yesPrice)}
                 </div>
                 <div className="text-sm text-gray-600">Yes Price</div>
               </div>
               <div className="bg-red-50 p-4 rounded-lg text-center">
                 <div className="text-2xl font-bold text-red-600">
-                  {market.noPrice ? `${(market.noPrice * 100).toFixed(0)}¢` : '-'}
+                  {formatPrice(market.noPrice)}
                 </div>
                 <div className="text-sm text-gray-600">No Price</div>
               </div>
@@ -178,7 +217,7 @@ export default function MarketDetailPage() {
               </div>
               <div className="bg-gray-50 p-4 rounded-lg text-center">
                 <div className="text-lg font-bold text-gray-800">
-                  {market.endDate
+                  {market.endDate && !isNaN(new Date(market.endDate).getTime())
                     ? new Date(market.endDate).toLocaleDateString()
                     : '-'}
                 </div>

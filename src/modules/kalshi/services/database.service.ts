@@ -125,19 +125,27 @@ class KalshiDatabaseService {
   }
 
   async getMarketById(id: string): Promise<KalshiMarketRecord | null> {
-    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE id = '${id}' AND protocol = '${this.protocol}' LIMIT 1`;
+    // Search by id, slug/ticker, or condition_id for flexibility
+    // Include backward compatibility for empty/null protocol
+    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE (id = '${id}' OR slug = '${id}' OR condition_id = '${id}') AND (protocol = '${this.protocol}' OR protocol = '' OR protocol IS NULL) LIMIT 1`;
+    console.log('[KalshiDbService] getMarketById SQL:', sql);
     const results = await this.safeQuery<KalshiMarketRecord>(sql);
+    console.log('[KalshiDbService] getMarketById result:', results.length > 0 ? `found: ${results[0].question}` : 'not found');
     return results.length > 0 ? results[0] : null;
   }
 
   async getMarketByTicker(ticker: string): Promise<KalshiMarketRecord | null> {
-    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE slug = '${ticker}' AND protocol = '${this.protocol}' LIMIT 1`;
+    // Include backward compatibility for empty/null protocol
+    const sql = `SELECT * FROM ${this.databaseName}.markets WHERE slug = '${ticker}' AND (protocol = '${this.protocol}' OR protocol = '' OR protocol IS NULL) LIMIT 1`;
+    console.log('[KalshiDbService] getMarketByTicker SQL:', sql);
     const results = await this.safeQuery<KalshiMarketRecord>(sql);
+    console.log('[KalshiDbService] getMarketByTicker result:', results.length > 0 ? `found: ${results[0].question}` : 'not found');
     return results.length > 0 ? results[0] : null;
   }
 
   async getMarketCount(status?: 'active' | 'closed' | 'all'): Promise<number> {
-    let whereClause = `protocol = '${this.protocol}'`;
+    // Include backward compatibility for empty/null protocol
+    let whereClause = `(protocol = '${this.protocol}' OR protocol = '' OR protocol IS NULL)`;
     if (status === 'active') whereClause += ' AND active = 1 AND closed = 0';
     else if (status === 'closed') whereClause += ' AND closed = 1';
 
@@ -148,7 +156,8 @@ class KalshiDatabaseService {
 
   async getEvents(params: { limit?: number; offset?: number; search?: string } = {}): Promise<KalshiEventRecord[]> {
     const { limit = 50, offset = 0, search } = params;
-    let whereClause = `protocol = '${this.protocol}'`;
+    // Include backward compatibility for empty/null protocol
+    let whereClause = `(protocol = '${this.protocol}' OR protocol = '' OR protocol IS NULL)`;
     if (search) whereClause += ` AND (title ILIKE '%${search}%' OR slug ILIKE '%${search}%')`;
 
     const sql = `
@@ -157,33 +166,40 @@ class KalshiDatabaseService {
       ORDER BY total_volume DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
+    console.log('[KalshiDbService] getEvents SQL:', sql);
     return this.safeQuery<KalshiEventRecord>(sql);
   }
 
   async getEventById(id: string): Promise<KalshiEventRecord | null> {
-    const sql = `SELECT * FROM ${this.databaseName}.events WHERE id = '${id}' AND protocol = '${this.protocol}' LIMIT 1`;
+    // Search by id or slug, with backward compatibility for empty/null protocol
+    const sql = `SELECT * FROM ${this.databaseName}.events WHERE (id = '${id}' OR slug = '${id}') AND (protocol = '${this.protocol}' OR protocol = '' OR protocol IS NULL) LIMIT 1`;
+    console.log('[KalshiDbService] getEventById SQL:', sql);
     const results = await this.safeQuery<KalshiEventRecord>(sql);
     return results.length > 0 ? results[0] : null;
   }
 
   async getTrades(params: { marketId?: string; ticker?: string; limit?: number; offset?: number } = {}): Promise<KalshiTradeRecord[]> {
     const { marketId, ticker, limit = 100, offset = 0 } = params;
-    let whereClause = `protocol = '${this.protocol}'`;
+    // Include backward compatibility for empty/null protocol
+    let whereClause = `(protocol = '${this.protocol}' OR protocol = '' OR protocol IS NULL)`;
     if (marketId) whereClause += ` AND market_id = '${marketId}'`;
     if (ticker) whereClause += ` AND slug = '${ticker}'`;
 
     const sql = `SELECT * FROM ${this.databaseName}.trades WHERE ${whereClause} ORDER BY timestamp DESC LIMIT ${limit} OFFSET ${offset}`;
+    console.log('[KalshiDbService] getTrades SQL:', sql);
     return this.safeQuery<KalshiTradeRecord>(sql);
   }
 
   async getStats(): Promise<{ totalMarkets: number; activeMarkets: number; totalEvents: number; totalTrades: number; lastUpdated: string | null }> {
     try {
+      // Include backward compatibility for empty/null protocol
+      const protocolFilter = `(protocol = '${this.protocol}' OR protocol = '' OR protocol IS NULL)`;
       const [marketsCount, activeMarketsCount, eventsCount, tradesCount, lastRun] = await Promise.all([
         this.getMarketCount('all'),
         this.getMarketCount('active'),
-        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.events WHERE protocol = '${this.protocol}'`),
-        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.trades WHERE protocol = '${this.protocol}'`),
-        this.safeQuery<{ completed_at: string }>(`SELECT completed_at FROM ${this.databaseName}.pipeline_runs WHERE protocol = '${this.protocol}' AND status = 'completed' ORDER BY completed_at DESC LIMIT 1`),
+        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.events WHERE ${protocolFilter}`),
+        this.safeQuery<{ count: string }>(`SELECT count() as count FROM ${this.databaseName}.trades WHERE ${protocolFilter}`),
+        this.safeQuery<{ completed_at: string }>(`SELECT completed_at FROM ${this.databaseName}.pipeline_runs WHERE ${protocolFilter} AND status = 'completed' ORDER BY completed_at DESC LIMIT 1`),
       ]);
 
       return {
