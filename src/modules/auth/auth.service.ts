@@ -206,25 +206,33 @@ export class AuthService {
    */
   async validateToken(token: string): Promise<{ sessionId: string; walletAddress: string } | null> {
     try {
+      console.log('[Auth] Validating token...');
       const payload = jwt.verify(token, env.auth.jwtSecret) as JWTPayload;
+      console.log('[Auth] JWT verified, sessionId:', payload.sessionId);
+
       const session = await this.getSession(payload.sessionId);
+      console.log('[Auth] Session from DB:', session ? 'found' : 'NOT FOUND');
 
       if (!session) {
+        console.log('[Auth] Session not found in database');
         return null;
       }
 
       if (new Date(session.expires_at) < new Date()) {
+        console.log('[Auth] Session expired at:', session.expires_at);
         return null;
       }
 
       // Update last activity
       await this.updateLastActivity(payload.sessionId);
 
+      console.log('[Auth] Token validation successful for:', payload.walletAddress);
       return {
         sessionId: payload.sessionId,
         walletAddress: payload.walletAddress,
       };
-    } catch (error) {
+    } catch (error: any) {
+      console.log('[Auth] Token validation error:', error.message);
       return null;
     }
   }

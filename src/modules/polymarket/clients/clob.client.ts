@@ -120,56 +120,37 @@ export class CLOBAPIClient {
   }
 
   /**
-   * ✅ Public Prices for many tokens (batch endpoint)
-   * API: GET https://clob.polymarket.com/prices?token_ids=<id1>,<id2>,...&side=<BUY|SELL>
-   * @param tokenIds - Array of token IDs
-   * @param side - "BUY" or "SELL"
-   */
-  async getPrices(tokenIds: string[], side: "BUY" | "SELL" = "BUY") {
-    await rateLimitManager.acquire(this.RATE_LIMIT_KEY);
-
-    const joined = tokenIds.join(",");
-
-    // API requires both token_ids and side parameters
-    const response = await this.client.get("/prices", {
-      params: { token_ids: joined, side },
-    });
-    return response.data;
-  }
-
-  /**
    * ✅ Get prices for multiple tokens with both sides (for mid price calculation)
+   * Note: Polymarket CLOB API only supports single token price requests,
+   * so we fetch each token individually with concurrency control.
    */
   async getPricesBothSides(tokenIds: string[]): Promise<Map<string, number>> {
     const priceMap = new Map<string, number>();
 
     if (tokenIds.length === 0) return priceMap;
 
-    try {
-      const joined = tokenIds.join(",");
+    // Process tokens with controlled concurrency (5 at a time)
+    const CONCURRENCY = 5;
+    for (let i = 0; i < tokenIds.length; i += CONCURRENCY) {
+      const batch = tokenIds.slice(i, i + CONCURRENCY);
 
-      // Fetch both buy and sell prices
-      const [buyRes, sellRes] = await Promise.all([
-        this.client.get("/prices", { params: { token_ids: joined, side: "BUY" } }),
-        this.client.get("/prices", { params: { token_ids: joined, side: "SELL" } }),
-      ]);
+      const results = await Promise.allSettled(
+        batch.map(async (tokenId) => {
+          const prices = await this.getPriceBothSides(tokenId);
+          return { tokenId, mid: prices.mid };
+        })
+      );
 
-      // Parse responses - format is typically { "token_id": "price", ... }
-      const buyPrices = buyRes.data || {};
-      const sellPrices = sellRes.data || {};
-
-      for (const tokenId of tokenIds) {
-        const buyPrice = parseFloat(buyPrices[tokenId] || "0");
-        const sellPrice = parseFloat(sellPrices[tokenId] || "0");
-
-        // Calculate mid price
-        if (buyPrice > 0 || sellPrice > 0) {
-          const midPrice = (buyPrice + sellPrice) / 2;
-          priceMap.set(tokenId, midPrice);
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value.mid > 0) {
+          priceMap.set(result.value.tokenId, result.value.mid);
         }
       }
-    } catch (error) {
-      console.warn(`⚠️ Failed to get batch prices:`, error);
+
+      // Small delay between batches to respect rate limits
+      if (i + CONCURRENCY < tokenIds.length) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
     }
 
     return priceMap;

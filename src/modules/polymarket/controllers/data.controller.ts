@@ -184,7 +184,14 @@ export const getClobPrices = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: "token_ids query param is required" });
     }
 
-    const data = await clobClient.getPrices(tokenIds);
+    // Fetch prices for all tokens (returns Map<tokenId, midPrice>)
+    const priceMap = await clobClient.getPricesBothSides(tokenIds);
+
+    // Convert Map to object for JSON response
+    const data: Record<string, number> = {};
+    for (const [tokenId, price] of priceMap) {
+      data[tokenId] = price;
+    }
     return res.json({ success: true, data });
   } catch (error: any) {
     console.error("❌ Controller: getClobPrices failed:", error?.message || error);

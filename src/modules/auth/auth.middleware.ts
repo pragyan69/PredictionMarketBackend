@@ -37,7 +37,10 @@ export async function requireAuth(
   try {
     const token = extractToken(req);
 
+    console.log(`[Auth] ${req.method} ${req.path} - Token present: ${!!token}`);
+
     if (!token) {
+      console.log('[Auth] No token in Authorization header');
       res.status(401).json({
         success: false,
         error: 'Authorization header required',
@@ -45,15 +48,18 @@ export async function requireAuth(
       return;
     }
 
+    console.log('[Auth] Token (first 20 chars):', token.substring(0, 20) + '...');
     const validated = await authService.validateToken(token);
 
     if (!validated) {
+      console.log('[Auth] Token validation failed - returning 401');
       res.status(401).json({
         success: false,
         error: 'Invalid or expired session',
       });
       return;
     }
+    console.log('[Auth] Authenticated:', validated.walletAddress);
 
     // Load platform credentials
     const [polymarket, kalshi] = await Promise.all([

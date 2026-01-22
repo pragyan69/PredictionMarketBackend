@@ -46,6 +46,7 @@ class ApiClient {
 
   setToken(token: string | null) {
     this.token = token;
+    console.log('[ApiClient] setToken called:', token ? 'token set' : 'token cleared');
     if (typeof window !== 'undefined') {
       if (token) {
         localStorage.setItem('session_token', token);
@@ -57,7 +58,26 @@ class ApiClient {
 
   getToken(): string | null {
     if (!this.token && typeof window !== 'undefined') {
+      // First try direct storage
       this.token = localStorage.getItem('session_token');
+
+      // If not found, try to get from zustand persist store
+      if (!this.token) {
+        try {
+          const authStorage = localStorage.getItem('auth-storage');
+          if (authStorage) {
+            const parsed = JSON.parse(authStorage);
+            if (parsed?.state?.sessionToken) {
+              this.token = parsed.state.sessionToken;
+              // Sync it back to session_token for consistency
+              localStorage.setItem('session_token', this.token);
+              console.log('[ApiClient] Synced token from auth-storage');
+            }
+          }
+        } catch (e) {
+          console.error('[ApiClient] Failed to parse auth-storage:', e);
+        }
+      }
     }
     return this.token;
   }
@@ -107,6 +127,42 @@ class ApiClient {
     private_key_pem: string;
   }) {
     const res = await this.client.post('/auth/kalshi/register', credentials);
+    return res.data;
+  }
+
+  // ==================== AUTOMATED SETUP ENDPOINTS ====================
+
+  // Get EIP-712 typed data for Polymarket API key signature
+  async getPolymarketSetupData() {
+    const res = await this.client.get('/auth/polymarket/setup-data');
+    return res.data;
+  }
+
+  // Auto-create Polymarket API key with wallet signature
+  async polymarketAutoSetup(data: {
+    signature: string;
+    timestamp: string;
+    nonce?: number;
+    funder_address?: string;
+    signature_type?: number;
+  }) {
+    const res = await this.client.post('/auth/polymarket/auto-setup', data);
+    return res.data;
+  }
+
+  // Auto-create Kalshi API key with email/password
+  async kalshiAutoSetup(data: {
+    email: string;
+    password: string;
+    method?: 'generate' | 'own_key';
+  }) {
+    const res = await this.client.post('/auth/kalshi/auto-setup', data);
+    return res.data;
+  }
+
+  // Get status of all trading credentials
+  async getCredentialsStatus() {
+    const res = await this.client.get('/auth/credentials/status');
     return res.data;
   }
 

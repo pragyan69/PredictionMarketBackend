@@ -4,7 +4,8 @@ import { clobClient } from '../../clients/clob.client';
 import { PriceData } from '../../types/aggregation.types';
 
 export class PriceFetcher {
-  private readonly BATCH_SIZE = 50; // Max tokens per batch request
+  // Batch size for processing - the CLOB client handles individual API calls internally
+  private readonly BATCH_SIZE = 20;
 
   /**
    * Fetch prices for multiple tokens in batches
@@ -63,9 +64,9 @@ export class PriceFetcher {
         }
       }
 
-      // Add small delay between batches to respect rate limits
+      // Add delay between batches to respect rate limits
       if (i + this.BATCH_SIZE < uniqueTokenIds.length) {
-        await this.delay(200);
+        await this.delay(300);
       }
     }
 

@@ -3,7 +3,6 @@
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
   "/": "pages/index.js",
-  "/markets/[platform]/[id]": "pages/markets/[platform]/[id].js",
   "/settings": "pages/settings.js",
-  "/markets": "pages/markets.js"
+  "/portfolio": "pages/portfolio.js"
 }
