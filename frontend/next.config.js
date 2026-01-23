@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081/api',
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://mimiq-polymarket-xipueo-b79c50-51-222-111-251.traefik.me/api',
   },
   webpack: (config) => {
     // Fix for @metamask/sdk missing react-native module

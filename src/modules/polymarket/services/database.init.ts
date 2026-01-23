@@ -167,6 +167,16 @@ const SCHEMA_STATEMENTS = [
     fetched_at DateTime64(3) DEFAULT now64(3)
   ) ENGINE = ReplacingMergeTree(fetched_at)
   ORDER BY (protocol, market_id, period_interval, end_period_ts)`,
+
+  // Pipeline checkpoints table - for resume capability after crashes
+  `CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.pipeline_checkpoints (
+    run_id String,
+    phase String,
+    checkpoint_data String,
+    protocol LowCardinality(String),
+    created_at DateTime64(3) DEFAULT now64(3)
+  ) ENGINE = ReplacingMergeTree(created_at)
+  ORDER BY (protocol, phase)`,
 ];
 
 class PolymarketDatabaseInit {

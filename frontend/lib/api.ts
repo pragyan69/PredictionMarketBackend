@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081/api';
+const API_URL = 'https://mimiq-polymarket-xipueo-b79c50-51-222-111-251.traefik.me/api';
 
 class ApiClient {
   private client: AxiosInstance;

@@ -51,5 +51,6 @@ USER mimiq
 EXPOSE 8081
 
 ENV PORT=8081
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 CMD ["node", "dist/index.js"]

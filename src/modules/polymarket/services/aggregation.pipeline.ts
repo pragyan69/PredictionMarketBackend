@@ -286,6 +286,7 @@ export class AggregationPipeline {
 
   /**
    * Phase 3: Fetch trades for each active market
+   * Uses streaming storage to avoid memory issues
    */
   private async fetchTradesForActiveMarkets(): Promise<void> {
     this.status.currentPhase = PipelinePhase.FETCHING_MARKET_ACTIVITY;
@@ -297,28 +298,44 @@ export class AggregationPipeline {
       .filter((m): m is GammaMarket & { conditionId: string } => !!m.conditionId)
       .map(m => m.conditionId);
 
-    console.log(`📊 Found ${conditionIds.length} markets with condition IDs`);
+    // Check for checkpoint to resume from
+    const checkpoint = await this.loadCheckpoint('trades');
+    let startIndex = 0;
+    if (checkpoint && checkpoint.lastMarketIndex !== undefined) {
+      startIndex = checkpoint.lastMarketIndex;
+      this.status.progress.tradesStored = checkpoint.tradesStored || 0;
+      this.status.progress.tradesFetched = checkpoint.tradesFetched || 0;
+      console.log(`🔄 RESUMING from market ${startIndex}/${conditionIds.length} (${this.status.progress.tradesStored} trades already stored)`);
+    }
+
+    const remainingConditionIds = conditionIds.slice(startIndex);
+    console.log(`📊 Found ${conditionIds.length} markets, processing ${remainingConditionIds.length} remaining`);
     console.log('═══════════════════════════════════════════════════');
 
-    // Fetch trades with progress callback - no limits
-    let lastStoredCount = 0;
-    const STORE_BATCH_SIZE = 1000; // Store every 1000 trades
+    // Fetch trades with progress callback - streaming to DB
+    const STORE_BATCH_SIZE = 500; // Store every 500 trades to reduce memory
 
     this.tradesMap = await tradesFetcher.fetchTradesForMarkets(
-      conditionIds,
+      remainingConditionIds,
       100, // 100 trades per market
-      async (_marketsDone, totalTrades, currentTradesMap) => {
-        this.status.progress.tradesFetched = totalTrades;
+      async (marketsDone, totalTrades, currentTradesMap) => {
+        this.status.progress.tradesFetched = (checkpoint?.tradesFetched || 0) + totalTrades;
         this.tradesMap = currentTradesMap;
 
         // Store trades incrementally every STORE_BATCH_SIZE trades
-        if (totalTrades - lastStoredCount >= STORE_BATCH_SIZE) {
+        const pendingTrades = tradesFetcher.flattenTrades(currentTradesMap).length;
+        if (pendingTrades >= STORE_BATCH_SIZE) {
           await this.storeTradesIncremental();
-          lastStoredCount = this.status.progress.tradesStored;
-          console.log(`  💾 Incremental store: ${lastStoredCount} trades stored, ${totalTrades} fetched`);
+          // Save checkpoint after storing
+          await this.saveCheckpoint('trades', {
+            lastMarketIndex: startIndex + marketsDone,
+            tradesStored: this.status.progress.tradesStored,
+            tradesFetched: this.status.progress.tradesFetched,
+          });
+          console.log(`  💾 Checkpoint saved: market ${startIndex + marketsDone}, ${this.status.progress.tradesStored} stored`);
         }
 
-        return false; // Never stop - fetch all trades
+        return false; // Continue fetching
       },
       0 // No limit
     );
@@ -326,7 +343,55 @@ export class AggregationPipeline {
     // Store any remaining trades
     await this.storeTradesIncremental();
 
+    // Clear checkpoint on successful completion
+    await this.clearCheckpoint('trades');
+
     console.log(`✅ Phase 3 complete: ${this.status.progress.tradesFetched} trades fetched, ${this.status.progress.tradesStored} stored`);
+  }
+
+  // ============================================
+  // CHECKPOINT METHODS FOR RESUME CAPABILITY
+  // ============================================
+
+  private async saveCheckpoint(phase: string, data: Record<string, any>): Promise<void> {
+    try {
+      await polymarketDb.insert('pipeline_checkpoints', [{
+        run_id: this.status.runId,
+        phase,
+        checkpoint_data: JSON.stringify(data),
+        created_at: new Date(),
+      }]);
+    } catch (error) {
+      console.warn('⚠️ Failed to save checkpoint:', error);
+    }
+  }
+
+  private async loadCheckpoint(phase: string): Promise<Record<string, any> | null> {
+    try {
+      const result = await polymarketDb.query(`
+        SELECT checkpoint_data FROM prediction_market.pipeline_checkpoints
+        WHERE phase = '${phase}'
+        ORDER BY created_at DESC
+        LIMIT 1
+      `);
+      if (result && result.length > 0 && result[0].checkpoint_data) {
+        return JSON.parse(result[0].checkpoint_data);
+      }
+    } catch (error) {
+      // Table might not exist yet, that's OK
+    }
+    return null;
+  }
+
+  private async clearCheckpoint(phase: string): Promise<void> {
+    try {
+      await polymarketDb.query(`
+        ALTER TABLE prediction_market.pipeline_checkpoints
+        DELETE WHERE phase = '${phase}'
+      `);
+    } catch (error) {
+      // Ignore if table doesn't exist
+    }
   }
 
   /**
@@ -423,23 +488,23 @@ export class AggregationPipeline {
   }
 
   /**
-   * Store trades incrementally
+   * Store trades incrementally and clear memory
    */
   private async storeTradesIncremental(): Promise<void> {
     try {
       const allTrades = tradesFetcher.flattenTrades(this.tradesMap);
 
-      // Only store new trades (not already stored)
-      const newTrades = allTrades.slice(this.status.progress.tradesStored);
-
-      if (newTrades.length > 0) {
+      if (allTrades.length > 0) {
         const batchSize = 500;
-        for (let i = 0; i < newTrades.length; i += batchSize) {
-          const batch = newTrades.slice(i, i + batchSize);
+        for (let i = 0; i < allTrades.length; i += batchSize) {
+          const batch = allTrades.slice(i, i + batchSize);
           await polymarketDb.insert('trades', batch);
         }
-        this.status.progress.tradesStored += newTrades.length;
+        this.status.progress.tradesStored += allTrades.length;
         console.log(`  💾 Stored ${this.status.progress.tradesStored} trades total`);
+
+        // CRITICAL: Clear tradesMap to free memory after storing
+        this.tradesMap.clear();
       }
     } catch (error) {
       console.error('⚠️ Failed to store trades:', error);
