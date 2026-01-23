@@ -57,26 +57,34 @@ class ApiClient {
   }
 
   getToken(): string | null {
-    if (!this.token && typeof window !== 'undefined') {
+    if (typeof window !== 'undefined') {
+      // Always try to get fresh token from storage
       // First try direct storage
-      this.token = localStorage.getItem('session_token');
+      let storedToken = localStorage.getItem('session_token');
 
       // If not found, try to get from zustand persist store
-      if (!this.token) {
+      if (!storedToken) {
         try {
           const authStorage = localStorage.getItem('auth-storage');
           if (authStorage) {
             const parsed = JSON.parse(authStorage);
             if (parsed?.state?.sessionToken) {
-              this.token = parsed.state.sessionToken;
+              storedToken = parsed.state.sessionToken;
               // Sync it back to session_token for consistency
-              localStorage.setItem('session_token', this.token);
-              console.log('[ApiClient] Synced token from auth-storage');
+              if (storedToken) {
+                localStorage.setItem('session_token', storedToken);
+                console.log('[ApiClient] Synced token from auth-storage');
+              }
             }
           }
         } catch (e) {
           console.error('[ApiClient] Failed to parse auth-storage:', e);
         }
+      }
+
+      // Update instance token if we found one
+      if (storedToken) {
+        this.token = storedToken;
       }
     }
     return this.token;
@@ -417,6 +425,127 @@ class ApiClient {
 
   async getBalances() {
     const res = await this.client.get('/balance');
+    return res.data;
+  }
+
+  // ==================== DFLOW ENDPOINTS ====================
+
+  // Get DFlow events with nested markets
+  async getDFlowEvents(params?: { limit?: number; offset?: number; status?: string; category?: string }) {
+    const res = await this.client.get('/dflow/events', { params });
+    return res.data;
+  }
+
+  // Get single DFlow event by ID
+  async getDFlowEventById(id: string) {
+    const res = await this.client.get(`/dflow/events/${id}`);
+    return res.data;
+  }
+
+  // Get DFlow markets
+  async getDFlowMarkets(params?: { limit?: number; offset?: number; status?: string }) {
+    const res = await this.client.get('/dflow/markets', { params });
+    return res.data;
+  }
+
+  // Get single DFlow market by ID
+  async getDFlowMarketById(id: string) {
+    const res = await this.client.get(`/dflow/markets/${id}`);
+    return res.data;
+  }
+
+  // Get DFlow market by ticker
+  async getDFlowMarketByTicker(ticker: string) {
+    const res = await this.client.get(`/dflow/markets/ticker/${ticker}`);
+    return res.data;
+  }
+
+  // Search DFlow markets
+  async searchDFlowMarkets(query: string, limit?: number) {
+    const res = await this.client.get('/dflow/markets/search', { params: { q: query, limit } });
+    return res.data;
+  }
+
+  // Get DFlow market mints (yesMint, noMint)
+  async getDFlowMarketMints(marketId: string) {
+    const res = await this.client.get(`/dflow/markets/${marketId}/mints`);
+    return res.data;
+  }
+
+  // Get DFlow orderbook
+  async getDFlowOrderbook(ticker: string) {
+    const res = await this.client.get(`/dflow/orderbook/${ticker}`);
+    return res.data;
+  }
+
+  // Get DFlow trades
+  async getDFlowTrades(params?: { market_id?: string; market_ticker?: string; limit?: number; cursor?: string }) {
+    const res = await this.client.get('/dflow/trades', { params });
+    return res.data;
+  }
+
+  // Get swap quote for DFlow
+  async getDFlowQuote(data: {
+    inputMint: string;
+    outputMint: string;
+    amount: string;
+    slippageBps?: number;
+    userPublicKey?: string;
+  }) {
+    const res = await this.client.post('/dflow/quote', data);
+    return res.data;
+  }
+
+  // Create DFlow swap transaction
+  async createDFlowSwap(data: {
+    userPublicKey: string;
+    quoteResponse: any;
+    wrapAndUnwrapSol?: boolean;
+    computeUnitPriceMicroLamports?: number;
+  }) {
+    const res = await this.client.post('/dflow/swap', data);
+    return res.data;
+  }
+
+  // Get DFlow swap instructions
+  async getDFlowSwapInstructions(data: {
+    userPublicKey: string;
+    quoteResponse: any;
+    wrapAndUnwrapSol?: boolean;
+  }) {
+    const res = await this.client.post('/dflow/swap-instructions', data);
+    return res.data;
+  }
+
+  // Execute a trade on DFlow (convenience method)
+  async executeDFlowTrade(data: {
+    marketId: string;
+    side: 'yes' | 'no';
+    action: 'buy' | 'sell';
+    amount: number;
+    userPublicKey: string;
+    slippageBps?: number;
+  }) {
+    const res = await this.client.post('/dflow/trade', data);
+    return res.data;
+  }
+
+  // Get trade quote for DFlow (without creating transaction)
+  async getDFlowTradeQuote(data: {
+    marketId: string;
+    side: 'yes' | 'no';
+    action: 'buy' | 'sell';
+    amount: number;
+    userPublicKey?: string;
+    slippageBps?: number;
+  }) {
+    const res = await this.client.post('/dflow/trade/quote', data);
+    return res.data;
+  }
+
+  // DFlow health check
+  async getDFlowHealth() {
+    const res = await this.client.get('/dflow/health');
     return res.data;
   }
 }

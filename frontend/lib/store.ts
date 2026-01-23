@@ -53,6 +53,14 @@ export const useAuthStore = create<AuthState>()(
       storage: createJSONStorage(() => localStorage),
       onRehydrateStorage: () => (state) => {
         console.log('[AuthStore] Rehydrated:', state?.isConnected ? 'connected' : 'not connected');
+        // Sync session token to localStorage for ApiClient
+        if (state?.sessionToken && typeof window !== 'undefined') {
+          const existingToken = localStorage.getItem('session_token');
+          if (!existingToken) {
+            localStorage.setItem('session_token', state.sessionToken);
+            console.log('[AuthStore] Synced session_token to localStorage');
+          }
+        }
         state?.setHasHydrated(true);
       },
     }

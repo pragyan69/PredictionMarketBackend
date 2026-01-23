@@ -13,7 +13,7 @@ export const env = {
     port: parseInt(process.env.CLICKHOUSE_PORT || '9000', 10),
     username: process.env.CLICKHOUSE_USERNAME || 'default',
     password: process.env.CLICKHOUSE_PASSWORD || '',
-    database: process.env.CLICKHOUSE_DATABASE || 'drift_data',
+    database: process.env.CLICKHOUSE_DATABASE || 'prediction_market',
   },
   
   polymarket: {
@@ -35,6 +35,12 @@ export const env = {
     apiUrl: process.env.KALSHI_API_URL || 'https://api.elections.kalshi.com/trade-api/v2',
     wsUrl: process.env.KALSHI_WS_URL || 'wss://api.elections.kalshi.com',
     apiKey: process.env.KALSHI_API_KEY || '',
+  },
+
+  dflow: {
+    tradeApiUrl: process.env.DFLOW_TRADE_API_URL || 'https://quote-api.dflow.net',
+    metadataApiUrl: process.env.DFLOW_METADATA_API_URL || 'https://prediction-markets-api.dflow.net',
+    apiKey: process.env.DFLOW_API_KEY || '',
   },
 
   // Authentication & Security
@@ -62,6 +68,7 @@ export const env = {
     clobApi: parseInt(process.env.RATE_LIMIT_CLOB_API || '10', 10),
     dataApi: parseInt(process.env.RATE_LIMIT_DATA_API || '5', 10),
     kalshiApi: parseInt(process.env.RATE_LIMIT_KALSHI_API || '5', 10),
+    dflowApi: parseInt(process.env.RATE_LIMIT_DFLOW_API || '10', 10),
   },
   
   logging: {

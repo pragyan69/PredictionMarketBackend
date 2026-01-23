@@ -69,6 +69,52 @@ export default function SettingsPage() {
   // ============================================
   // POLYMARKET AUTO-SETUP
   // ============================================
+  // Switch to Polygon network
+  const switchToPolygon = async (): Promise<boolean> => {
+    if (!window.ethereum) return false;
+
+    const POLYGON_CHAIN_ID = '0x89'; // 137 in hex
+
+    try {
+      // Try to switch to Polygon
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: POLYGON_CHAIN_ID }],
+      });
+      return true;
+    } catch (switchError: any) {
+      // If Polygon is not added to wallet, add it
+      if (switchError.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: POLYGON_CHAIN_ID,
+              chainName: 'Polygon Mainnet',
+              nativeCurrency: {
+                name: 'MATIC',
+                symbol: 'MATIC',
+                decimals: 18,
+              },
+              rpcUrls: ['https://polygon-rpc.com'],
+              blockExplorerUrls: ['https://polygonscan.com'],
+            }],
+          });
+          return true;
+        } catch (addError) {
+          console.error('Failed to add Polygon network:', addError);
+          return false;
+        }
+      }
+      // User rejected the switch
+      if (switchError.code === 4001) {
+        return false;
+      }
+      console.error('Failed to switch network:', switchError);
+      return false;
+    }
+  };
+
   const handlePolymarketAutoSetup = async () => {
     if (!window.ethereum) {
       setPolyAutoResult({ success: false, message: 'No wallet detected. Please install MetaMask or another Web3 wallet.' });
@@ -82,6 +128,35 @@ export default function SettingsPage() {
       // Debug: Check if token exists
       const token = api.getToken();
       console.log('[Settings] Token before request:', token ? token.substring(0, 20) + '...' : 'NO TOKEN');
+
+      // If no token, session may have expired - redirect to reconnect
+      if (!token) {
+        setPolyAutoResult({
+          success: false,
+          message: 'Session expired. Please disconnect and reconnect your wallet.'
+        });
+        setPolyAutoLoading(false);
+        return;
+      }
+
+      // Check current chain and switch to Polygon if needed
+      const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
+      console.log('[Settings] Current chain ID:', currentChainId);
+
+      if (currentChainId !== '0x89') { // Not Polygon
+        console.log('[Settings] Switching to Polygon network...');
+        const switched = await switchToPolygon();
+        if (!switched) {
+          setPolyAutoResult({
+            success: false,
+            message: 'Please switch to Polygon network to set up Polymarket credentials.'
+          });
+          setPolyAutoLoading(false);
+          return;
+        }
+        // Wait a moment for the network switch to complete
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
 
       // Step 1: Get the typed data to sign
       const setupRes = await api.getPolymarketSetupData();
@@ -125,6 +200,8 @@ export default function SettingsPage() {
       let message = err.message || 'Failed to setup Polymarket';
       if (err.code === 4001) {
         message = 'Signature request was rejected';
+      } else if (err.response?.status === 401) {
+        message = 'Session expired. Please disconnect and reconnect your wallet.';
       }
       setPolyAutoResult({ success: false, message });
     } finally {

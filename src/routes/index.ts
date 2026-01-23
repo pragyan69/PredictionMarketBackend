@@ -11,6 +11,9 @@ import { kalshiTradingRouter } from "../modules/kalshi/routes/trading.routes";
 import { unifiedOrdersRouter } from "../modules/unified/orders.routes";
 import { portfolioRouter, balanceRouter } from "../modules/portfolio/portfolio.routes";
 
+// DFlow module
+import dflowRoutes from "../modules/dflow/routes/dflow.routes";
+
 export const routes = Router();
 
 // Health check
@@ -31,3 +34,6 @@ routes.use("/kalshi", kalshiTradingRouter);
 routes.use("/orders", unifiedOrdersRouter);
 routes.use("/portfolio", portfolioRouter);
 routes.use("/balance", balanceRouter);
+
+// DFlow routes
+routes.use("/dflow", dflowRoutes);

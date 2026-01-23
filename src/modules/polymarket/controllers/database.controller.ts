@@ -18,7 +18,7 @@ export const getMarketsFromDb = async (req: Request, res: Response) => {
     return res.json({
       success: true,
       data: markets,
-      count: markets.length,
+      count: markets ? markets.length : 0,
     });
   } catch (error: any) {
     console.error('Failed to get markets from DB:', error);

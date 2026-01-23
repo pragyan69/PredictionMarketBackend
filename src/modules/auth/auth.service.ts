@@ -238,12 +238,25 @@ export class AuthService {
   }
 
   /**
+   * Convert a date value (string or Date) to a Date object
+   */
+  private toDate(value: string | Date): Date {
+    if (value instanceof Date) {
+      return value;
+    }
+    return new Date(value);
+  }
+
+  /**
    * Update last activity timestamp
    */
   private async updateLastActivity(sessionId: string): Promise<void> {
     // ClickHouse uses ReplacingMergeTree, so we insert a new row
     const session = await this.getSession(sessionId);
     if (session) {
+      // Convert string dates from DB to Date objects
+      session.created_at = this.toDate(session.created_at);
+      session.expires_at = this.toDate(session.expires_at);
       session.last_activity = new Date();
       await this.createSession(session);
     }
@@ -276,6 +289,10 @@ export class AuthService {
     if (!session) {
       throw new Error('Session not found');
     }
+
+    // Convert string dates from DB to Date objects
+    session.created_at = this.toDate(session.created_at);
+    session.expires_at = this.toDate(session.expires_at);
 
     session.poly_api_key = encrypt(credentials.apiKey);
     session.poly_secret = encrypt(credentials.secret);
@@ -317,6 +334,10 @@ export class AuthService {
       throw new Error('Session not found');
     }
 
+    // Convert string dates from DB to Date objects
+    session.created_at = this.toDate(session.created_at);
+    session.expires_at = this.toDate(session.expires_at);
+
     session.kalshi_api_key_id = credentials.apiKeyId;
     session.kalshi_private_key = encrypt(credentials.privateKey);
     session.last_activity = new Date();
@@ -345,6 +366,8 @@ export class AuthService {
   async invalidateSession(sessionId: string): Promise<void> {
     const session = await this.getSession(sessionId);
     if (session) {
+      // Convert string dates from DB to Date objects
+      session.created_at = this.toDate(session.created_at);
       session.expires_at = new Date(0); // Set to epoch
       session.last_activity = new Date();
       await this.createSession(session);

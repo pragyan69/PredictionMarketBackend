@@ -116,7 +116,7 @@ class PolymarketDatabaseService {
     search?: string;
     eventId?: string;
     protocol?: string; // Optional: filter by protocol, defaults to 'polymarket'
-  } = {}): Promise<MarketRecord[]> {
+  } = {}): Promise<MarketRecord[] | null> {
     const { status = 'active', limit = 50, offset = 0, search, eventId, protocol } = params;
 
     // Protocol filter: include records with matching protocol OR empty/null protocol (for backward compatibility)
@@ -142,7 +142,8 @@ class PolymarketDatabaseService {
     console.log('[PolymarketDbService] getMarkets SQL:', sql);
     const results = await this.safeQuery<MarketRecord>(sql);
     console.log('[PolymarketDbService] getMarkets results:', results.length);
-    return results;
+    // Return null if no markets found
+    return results.length > 0 ? results : null;
   }
 
   async getMarketById(id: string, protocol?: string): Promise<MarketRecord | null> {
